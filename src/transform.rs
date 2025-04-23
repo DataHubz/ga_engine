@@ -143,15 +143,17 @@ impl Rotor3 {
         let uy = az * tx - ax * tz;
         let uz = ax * ty - ay * tx;
 
-        // coefficients
-        let k1 = 2.0 * self.w * self.s;
+        let k1 = 2.0 * self.w * self.s;        // scalar
         let k2 = 2.0 * self.s * self.s;
 
-        // result = v + k1 * t + k2 * uxt
-        Vec3::new(
-            vx + k1 * tx + k2 * ux,
-            vy + k1 * ty + k2 * uy,
-            vz + k1 * tz + k2 * uz,
-        )
+        // chain two mul_adds per component:
+        let x = k1.mul_add(tx, vx);            // vx + k1*tx
+        let x = k2.mul_add(ux, x);             // (vx + k1*tx) + k2*ux
+        let y = k1.mul_add(ty, vy);
+        let y = k2.mul_add(uy, y);
+        let z = k1.mul_add(tz, vz);
+        let z = k2.mul_add(uz, z);
+
+        Vec3::new(x, y, z)
     }
 }
