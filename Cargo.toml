@@ -18,3 +18,8 @@ harness = false
 [[bin]]
 name = "coverage_summary"
 path = "src/bin/coverage_summary.rs"
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
