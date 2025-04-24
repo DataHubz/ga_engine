@@ -1,4 +1,4 @@
-// src/rotor.rs
+//! src/rotor.rs
 //! A 3-D rotor (unit even multivector) for rotations via Geometric Algebra.
 
 use crate::{
@@ -12,13 +12,14 @@ use wide::f64x4;
 #[derive(Clone, Debug, PartialEq)]
 pub struct Rotor3 {
   inner: Multivector3,
-  axis:  Vec3,
-  w:     f64,
-  s:     f64,
+  axis: Vec3,
+  w: f64,
+  s: f64,
 }
 
 impl Rotor3 {
-  /// Construct a rotor from an axis (unit Vec3) and an angle (radians).
+  /// Construct a rotor from an axis (Vec3) and angle (radians).
+  #[inline(always)]
   pub fn from_axis_angle(axis: Vec3, angle: f64) -> Self {
       let half = angle * 0.5;
       let w = half.cos();
@@ -36,31 +37,26 @@ impl Rotor3 {
       Rotor3 { inner: m, axis: axis_norm, w, s }
   }
 
-  /// Construct a rotor by exponentiating a pure bivector `b`: `exp(b)`.
-  ///
+  /// Construct a rotor by exponentiating a pure bivector `b`: exp(b).
   /// If `b` is zero, returns the identity rotor.
+  #[inline(always)]
   pub fn from_bivector(b: Bivector3) -> Self {
-      let phi = (b.xy * b.xy + b.yz * b.yz + b.zx * b.zx).sqrt();
+      let phi = b.norm();
       if phi == 0.0 {
-          // identity rotor
           return Rotor3::from_axis_angle(Vec3::new(1.0, 0.0, 0.0), 0.0);
       }
-      let scalar = phi.cos();
-      let sin_phi = phi.sin();
-      // build inner multivector
+      let w = phi.cos();
+      let s = phi.sin();
+      let biv = b.scale(1.0 / phi * s);
       let mut m = Multivector3::zero();
-      m.scalar = scalar;
-      m.bivector = Bivector3::new(
-          b.xy / phi * sin_phi,
-          b.yz / phi * sin_phi,
-          b.zx / phi * sin_phi,
-      );
-      // extract rotation axis via dual of bivector
+      m.scalar = w;
+      m.bivector = biv;
       let axis = Vec3::new(b.xy / phi, b.yz / phi, b.zx / phi);
-      Rotor3 { inner: m, axis, w: scalar, s: sin_phi }
+      Rotor3 { inner: m, axis, w, s }
   }
 
   /// Rotate a vector via the sandwich product: r * v * r⁻¹.
+  #[inline(always)]
   pub fn rotate(&self, v: Vec3) -> Vec3 {
       let mv = Multivector3::from_vector(v);
       let r_inv = self.inner.reverse();
@@ -77,12 +73,10 @@ impl Rotor3 {
       let vy = v.y;
       let vz = v.z;
 
-      // t = axis × v
       let tx = ay * vz - az * vy;
       let ty = az * vx - ax * vz;
       let tz = ax * vy - ay * vx;
 
-      // u = axis × t
       let ux = ay * tz - az * ty;
       let uy = az * tx - ax * tz;
       let uz = ax * ty - ay * tx;
@@ -97,7 +91,7 @@ impl Rotor3 {
       )
   }
 
-  /// SIMD-4× rotate of four Vec3s in parallel using `wide::f64x4`.
+  /// SIMD-4× rotate of four Vec3s in parallel using wide::f64x4.
   #[inline(always)]
   pub fn rotate_simd(&self, vs: [Vec3; 4]) -> [Vec3; 4] {
       let ax = f64x4::splat(self.axis.x);
@@ -123,19 +117,19 @@ impl Rotor3 {
       let ry = k2.mul_add(uy, k1.mul_add(ty, vy));
       let rz = k2.mul_add(uz, k1.mul_add(tz, vz));
 
-      let ax = rx.to_array();
-      let ay = ry.to_array();
-      let az = rz.to_array();
+      let ax_arr = rx.to_array();
+      let ay_arr = ry.to_array();
+      let az_arr = rz.to_array();
 
       [
-          Vec3::new(ax[0], ay[0], az[0]),
-          Vec3::new(ax[1], ay[1], az[1]),
-          Vec3::new(ax[2], ay[2], az[2]),
-          Vec3::new(ax[3], ay[3], az[3]),
+          Vec3::new(ax_arr[0], ay_arr[0], az_arr[0]),
+          Vec3::new(ax_arr[1], ay_arr[1], az_arr[1]),
+          Vec3::new(ax_arr[2], ay_arr[2], az_arr[2]),
+          Vec3::new(ax_arr[3], ay_arr[3], az_arr[3]),
       ]
   }
 
-  /// SIMD-8× rotate by running two 4-lane SIMD passes.
+  /// SIMD-8× rotate by two 4-lane SIMD passes.
   #[inline(always)]
   pub fn rotate_simd8(&self, vs: [Vec3; 8]) -> [Vec3; 8] {
       let r0 = self.rotate_simd([vs[0], vs[1], vs[2], vs[3]]);

@@ -1,3 +1,5 @@
+// src/vector.rs
+
 use std::fmt;
 use std::ops::{Add, Sub, Mul, Neg};
 
@@ -46,6 +48,30 @@ impl Vec3 {
     pub fn scale(&self, s: f64) -> Self {
         Self::new(self.x * s, self.y * s, self.z * s)
     }
+
+    /// Project this vector onto `other`:  
+    /// projₒₙ(self) = other * (self·other) / (other·other)
+    #[inline(always)]
+      pub fn project_onto(&self, axis: &Vec3) -> Vec3 {
+        let denom = axis.dot(axis);
+        if denom == 0.0 {
+            return Vec3::default();
+        }
+        let scale = self.dot(axis) / denom;
+        *axis * scale
+    }
+
+    /// Reject this vector from `other` (component orthogonal to `other`).
+    #[inline(always)]
+    pub fn reject_from(&self, other: &Vec3) -> Vec3 {
+        *self - self.project_onto(other)
+    }
+
+    #[inline(always)]
+    pub fn scalar_proj_onto(&self, axis: &Vec3) -> f64 {
+        let axis_len = axis.norm();
+        if axis_len == 0.0 { 0.0 } else { self.dot(axis) / axis_len }
+    }
 }
 
 impl Default for Vec3 {
@@ -55,13 +81,13 @@ impl Default for Vec3 {
 }
 
 impl From<[f64; 3]> for Vec3 {
-    fn from(arr: [f64;3]) -> Vec3 {
+    fn from(arr: [f64; 3]) -> Vec3 {
         Vec3::new(arr[0], arr[1], arr[2])
     }
 }
 
-impl From<Vec3> for [f64;3] {
-    fn from(v: Vec3) -> [f64;3] {
+impl From<Vec3> for [f64; 3] {
+    fn from(v: Vec3) -> [f64; 3] {
         [v.x, v.y, v.z]
     }
 }

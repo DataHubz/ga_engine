@@ -57,6 +57,7 @@ impl Add for Bivector3 {
         Self::new(self.xy + rhs.xy, self.yz + rhs.yz, self.zx + rhs.zx)
     }
 }
+
 impl Sub for Bivector3 {
     type Output = Self;
     #[inline(always)]
@@ -64,6 +65,7 @@ impl Sub for Bivector3 {
         Self::new(self.xy - rhs.xy, self.yz - rhs.yz, self.zx - rhs.zx)
     }
 }
+
 impl Neg for Bivector3 {
     type Output = Self;
     #[inline(always)]
@@ -71,6 +73,7 @@ impl Neg for Bivector3 {
         Self::new(-self.xy, -self.yz, -self.zx)
     }
 }
+
 impl Mul<f64> for Bivector3 {
     type Output = Self;
     #[inline(always)]
@@ -93,6 +96,7 @@ impl From<[f64; 3]> for Bivector3 {
         Self::new(arr[0], arr[1], arr[2])
     }
 }
+
 impl From<Bivector3> for [f64; 3] {
     #[inline(always)]
     fn from(b: Bivector3) -> Self {
