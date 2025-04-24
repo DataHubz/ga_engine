@@ -23,14 +23,14 @@
    - All unit tests (`identity`, `simple` matrices; `scalar_vector`, `vector_vector`; `rotate_z_90_degrees`, `rotate_z_90_degrees_fast`, `rotate_z_90_degrees_simd4`, `rotate_z_90_degrees_simd8`) pass.  
 2. **Performance**  
    - **Classical** 8×8 × 1 000 batch: **~260 µs**  
-   - **GA** full multivector 8D × 1 000 batch: **~45 µs** (≈ 5.8× faster than classical)  
+   - **GA** full multivector 8D × 1 000 batch: **~45 µs** (≈ 5.8× faster)  
    - **rotate 3D point classical**: **~5.6 µs**  
-   - **rotate 3D point GA (sandwich)**: **~93 µs**  
-   - **rotate 3D point GA (fast)**: **~7.9 µs** (≈ 1.4× slower than classical)  
-   - **rotate 3D point GA (SIMD 4×)**: **~10.0 µs** (≈ 2.3× faster)  
-   - **rotate 3D point GA (SIMD 8×)**: **~12.3 µs** (≈ 3.7× faster)  
+   - **rotate 3D point GA (sandwich)**: **~96 µs**  
+   - **rotate 3D point GA (fast)**: **~7.9 µs** (≈ 1.4× slower)  
+   - **rotate 3D point GA (SIMD 4×)**: **~10 µs** (≈ 2.3× faster per vector)  
+   - **rotate 3D point GA (SIMD 8×)**: **~12.3 µs** (≈ 3.7× faster per vector)  
 
-These results show that GA can be a drop-in, correct replacement for classical routines, and—when vectorized—can substantially outperform them.
+These results show that GA can be a drop-in, correct replacement for classical routines—and when vectorized, can substantially outperform them.
 
 ## How to Reproduce
 1. **Install Rust** (via `rustup`)  
@@ -48,23 +48,23 @@ These results show that GA can be a drop-in, correct replacement for classical r
    cargo bench
    ```
 5. **Check coverage:**
-   - Generate coverage JSON and summary in one step:
-     ```bash
-     make coverage
-     ```
-   - This runs:
-     ```bash
-     cargo llvm-cov --json --summary-only --output-path cov.json
-     cargo run --bin coverage_summary
-     ```
-     producing a terminal coverage table.
+   ```bash
+   make coverage
+   ```
+   This runs:
+   ```bash
+   cargo llvm-cov --json --summary-only --output-path cov.json
+   cargo run --bin coverage_summary
+   ```
+   producing a terminal coverage summary.
 
 ## Example
 
 ```rust
-use ga_engine::{Vec3, Rotor3, apply_matrix3};
+use ga_engine::{Vec3, Rotor3};
+use ga_engine::transform::apply_matrix3;
 
-let eps = 1e-12;
+const EPS: f64 = 1e-12;
 
 // classical 90° about Z
 let p = Vec3::new(1.0, 0.0, 0.0);
@@ -80,16 +80,16 @@ let r = Rotor3::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), std::f64::consts::FRAC
 let p2 = r.rotate(p);
 
 // approximate equality to avoid tiny floating-point residues
-assert!((p1.x - p2.x).abs() < eps);
-assert!((p1.y - p2.y).abs() < eps);
-assert!((p1.z - p2.z).abs() < eps);
+assert!((p1.x - p2.x).abs() < EPS);
+assert!((p1.y - p2.y).abs() < EPS);
+assert!((p1.z - p2.z).abs() < EPS);
 ```
 
 ## Next Steps
-- **Micro-optimizations:** unroll, explore f32-precision, widen SIMD lanes further.  
+- **Micro-optimizations:** unroll loops, explore f32-precision kernels, widen SIMD lanes further.  
 - **Batch & parallel:** expose batch APIs and Rayon integration for large workloads.  
 - **Killer-app demos:** integrate GA in small neural-net layers and FHE primitives with end-to-end benchmarks.  
 - **Publish & document:** release on crates.io, add code samples, and plot performance charts.
 
 *Chronology:*  
-- **v0.1.0**: Baseline classical & GA implementations + semantic adapters + full benchmarks + coverage tooling + SIMD-4× & SIMD-8× rotors.  
+- **v0.1.0**: Baseline classical & GA implementations + adapters + full benchmarks + coverage tooling + SIMD-4× & SIMD-8× rotors.  

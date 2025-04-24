@@ -1,7 +1,8 @@
+// benches/bench.rs
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ga_engine::{classical};
+use ga_engine::{multiply_matrices, apply_matrix3, Vec3, Rotor3};
 use ga_engine::ga::geometric_product_full;
-use ga_engine::transform::{Vec3, apply_matrix3, Rotor3};
 
 const BATCH_SIZE: usize = 1_000;
 
@@ -15,7 +16,7 @@ fn bench_matrix_mult(c: &mut Criterion) {
         bencher.iter(|| {
             let mut res = Vec::with_capacity(n * n);
             for _ in 0..BATCH_SIZE {
-                res = classical::multiply_matrices(black_box(&a), black_box(&b), n);
+                res = multiply_matrices(black_box(&a), black_box(&b), n);
             }
             black_box(res)
         })
@@ -47,7 +48,7 @@ fn bench_rotate_point(c: &mut Criterion) {
         0.0,  0.0, 1.0,
     ];
     let rotor = Rotor3::from_axis_angle(
-        &Vec3::new(0.0, 0.0, 1.0),
+        Vec3::new(0.0, 0.0, 1.0),
         std::f64::consts::FRAC_PI_2,
     );
 
@@ -55,7 +56,7 @@ fn bench_rotate_point(c: &mut Criterion) {
         bencher.iter(|| {
             let mut res = v0;
             for _ in 0..BATCH_SIZE {
-                res = apply_matrix3(black_box(&m), black_box(&res));
+                res = apply_matrix3(black_box(&m), black_box(res));
             }
             black_box(res)
         })
@@ -65,7 +66,7 @@ fn bench_rotate_point(c: &mut Criterion) {
         bencher.iter(|| {
             let mut res = v0;
             for _ in 0..BATCH_SIZE {
-                res = rotor.rotate(black_box(&res));
+                res = rotor.rotate(black_box(res));
             }
             black_box(res)
         })
@@ -75,17 +76,17 @@ fn bench_rotate_point(c: &mut Criterion) {
         bencher.iter(|| {
             let mut res = v0;
             for _ in 0..BATCH_SIZE {
-                res = rotor.rotate_fast(black_box(&res));
+                res = rotor.rotate_fast(black_box(res));
             }
             black_box(res)
         })
     });
 
-    c.bench_function("rotate 3D point GA (SIMD 4x)", |bencher| {
+    c.bench_function("rotate 3D point GA (SIMD 4×)", |bencher| {
         bencher.iter(|| {
             let mut vs = [v0, v0, v0, v0];
             for _ in 0..BATCH_SIZE {
-                vs = rotor.rotate_simd(black_box(&vs));
+                vs = rotor.rotate_simd(black_box(vs));
             }
             black_box(vs)
         })
@@ -95,7 +96,7 @@ fn bench_rotate_point(c: &mut Criterion) {
         bencher.iter(|| {
             let mut vs = [v0, v0, v0, v0, v0, v0, v0, v0];
             for _ in 0..BATCH_SIZE {
-                vs = rotor.rotate_simd8(black_box(&vs));
+                vs = rotor.rotate_simd8(black_box(vs));
             }
             black_box(vs)
         })
