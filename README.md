@@ -32,6 +32,8 @@
 
 These results show that GA can be a drop-in, correct replacement for classical routines—and when vectorized, can substantially outperform them.
 
+Here’s the updated **How to Reproduce** section with Clippy included:
+
 ## How to Reproduce
 1. **Install Rust** (via `rustup`)  
 2. **Clone** this repo and change directory:
@@ -43,11 +45,15 @@ These results show that GA can be a drop-in, correct replacement for classical r
    ```bash
    cargo test
    ```
-4. **Run benchmarks:**
+4. **Run Clippy (linter):**
+   ```bash
+   cargo clippy --all-targets --all-features -- -D warnings
+   ```
+5. **Run benchmarks:**
    ```bash
    cargo bench
    ```
-5. **Check coverage:**
+6. **Check coverage:**
    ```bash
    make coverage
    ```
