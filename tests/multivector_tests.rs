@@ -15,7 +15,7 @@ fn zero_multivector_is_all_zero() {
 
 #[test]
 fn from_scalar_sets_only_scalar_component() {
-    let s = 3.14;
+    let s = std::f64::consts::PI;
     let m = Multivector3::from_scalar(s);
     assert!((m.scalar - s).abs() < EPS);
     assert_eq!(m.vector, Vec3::new(0.0, 0.0, 0.0));

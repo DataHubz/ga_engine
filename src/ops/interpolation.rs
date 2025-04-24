@@ -1,8 +1,8 @@
 //! src/ops/interpolation.rs
-//! Slerp‐style interpolation between two `Rotor3`
+//! Slerp-style interpolation between two `Rotor3`
 
-use crate::rotor::Rotor3;
 use crate::bivector::Bivector3;
+use crate::rotor::Rotor3;
 
 /// Spherical linear interpolation of two rotors `r1` → `r2` by fraction `t` in [0,1].
 ///
@@ -16,15 +16,15 @@ pub fn slerp(r1: &Rotor3, r2: &Rotor3, t: f64) -> Rotor3 {
             + b1.xy * b2.xy
             + b1.yz * b2.yz
             + b1.zx * b2.zx
-    };
-
+    }
     // Clamp into [-1,1]
-    let dot = dot.max(-1.0).min(1.0);
+    .clamp(-1.0, 1.0);
+
     // actual half-angle
     let theta = dot.acos();
 
     if theta.abs() < 1e-8 {
-        // nearly the same, just lerp the multivector
+        // nearly the same, just return the first rotor
         return r1.clone();
     }
 
@@ -57,12 +57,12 @@ mod tests {
 
     #[test]
     fn slerp_identity_to_90() {
-        let r0 = Rotor3::from_axis_angle(Vec3::new(0.0,0.0,1.0), 0.0);
-        let r1 = Rotor3::from_axis_angle(Vec3::new(0.0,0.0,1.0), std::f64::consts::FRAC_PI_2);
+        let r0 = Rotor3::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), 0.0);
+        let r1 = Rotor3::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), std::f64::consts::FRAC_PI_2);
 
         // halfway should be 45°
         let rm = slerp(&r0, &r1, 0.5);
-        let v = Vec3::new(1.0,0.0,0.0);
+        let v = Vec3::new(1.0, 0.0, 0.0);
         let v_rot = rm.rotate_fast(v);
 
         let expected = Vec3::new(

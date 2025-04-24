@@ -76,7 +76,7 @@ const GP_PAIRS: [(usize, usize, f64, usize); 64] = make_gp_pairs();
 ///
 /// # Arguments
 /// - `a`, `b`: 8-component multivectors in the order
-///     `[scalar, e1, e2, e3, e23, e31, e12, e123]`
+///   `[scalar, e1, e2, e3, e23, e31, e12, e123]`
 /// - `out`: pre-allocated 8-element buffer for the result
 #[inline(always)]
 pub fn geometric_product_full(a: &[f64; 8], b: &[f64; 8], out: &mut [f64; 8]) {

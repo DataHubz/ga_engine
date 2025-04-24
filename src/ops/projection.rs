@@ -5,7 +5,7 @@ use crate::vector::Vec3;
 
 /// Trait for projecting and rejecting Vec3s onto axes and planes.
 pub trait Vec3Projection {
-    /// Project this vector onto `axis`.  
+    /// Project this vector onto `axis`.
     fn project_onto(&self, axis: &Vec3) -> Vec3;
 
     /// Reject (component orthogonal to `axis`).
@@ -37,8 +37,7 @@ impl Vec3Projection for Vec3 {
     }
 }
 
-/// Free‐function wrappers for convenience and for importing in tests.
-
+/// Free-function wrappers for convenience and for importing in tests.
 /// Project `v` onto `axis`.
 pub fn project_onto(v: &Vec3, axis: &Vec3) -> Vec3 {
     v.project_onto(axis)

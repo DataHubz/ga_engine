@@ -43,16 +43,15 @@ fn basis_blade_products_yield_single_nonzero() {
 
 #[test]
 fn unit_vectors_square_to_scalar_one() {
-    // e1*e1 = e2*e2 = e3*e3 = 1
-    let blades = basis_blades();
-    for idx in 1..4 {
+    let blades = basis_blades();      // ← bind the blades here
+    for blade in &blades[1..4] {
         let mut out = [0.0; 8];
-        geometric_product_full(&blades[idx], &blades[idx], &mut out);
+        geometric_product_full(blade, blade, &mut out);
         assert_eq!(
             out,
             [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            "Vector e{} squared should be scalar 1.0",
-            idx
+            "Unit vector squared should give scalar 1.0, got {:?}",
+            out
         );
     }
 }

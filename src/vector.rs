@@ -1,5 +1,3 @@
-// src/vector.rs
-
 use std::fmt;
 use std::ops::{Add, Sub, Mul, Neg};
 
@@ -49,10 +47,10 @@ impl Vec3 {
         Self::new(self.x * s, self.y * s, self.z * s)
     }
 
-    /// Project this vector onto `other`:  
-    /// projₒₙ(self) = other * (self·other) / (other·other)
+    /// Project this vector onto `axis`:  
+    /// projₐ(self) = axis * (self·axis) / (axis·axis)
     #[inline(always)]
-      pub fn project_onto(&self, axis: &Vec3) -> Vec3 {
+    pub fn project_onto(&self, axis: &Vec3) -> Vec3 {
         let denom = axis.dot(axis);
         if denom == 0.0 {
             return Vec3::default();
@@ -61,16 +59,21 @@ impl Vec3 {
         *axis * scale
     }
 
-    /// Reject this vector from `other` (component orthogonal to `other`).
+    /// Reject this vector from `axis` (component orthogonal to `axis`).
     #[inline(always)]
-    pub fn reject_from(&self, other: &Vec3) -> Vec3 {
-        *self - self.project_onto(other)
+    pub fn reject_from(&self, axis: &Vec3) -> Vec3 {
+        *self - self.project_onto(axis)
     }
 
+    /// Scalar projection (signed) of this vector onto `axis`.
     #[inline(always)]
     pub fn scalar_proj_onto(&self, axis: &Vec3) -> f64 {
-        let axis_len = axis.norm();
-        if axis_len == 0.0 { 0.0 } else { self.dot(axis) / axis_len }
+        let len = axis.norm();
+        if len == 0.0 {
+            0.0
+        } else {
+            self.dot(axis) / len
+        }
     }
 }
 
@@ -125,9 +128,17 @@ impl Neg for Vec3 {
 }
 
 /// A tiny wrapper for printing a `Vec3` rounded to `decimals` places.
-pub struct Rounded<'a>(pub &'a Vec3, pub usize);
+pub struct Rounded<'a>(&'a Vec3, usize);
 
-impl<'a> fmt::Display for Rounded<'a> {
+impl<'a> Rounded<'a> {
+    /// Wrap a `&Vec3` for pretty-printing with `decimals` digits.
+    #[inline(always)]
+    pub fn new(v: &'a Vec3, decimals: usize) -> Self {
+        Rounded(v, decimals)
+    }
+}
+
+impl fmt::Display for Rounded<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let Rounded(v, dec) = *self;
         write!(
@@ -138,13 +149,5 @@ impl<'a> fmt::Display for Rounded<'a> {
             z = v.z,
             dec = dec
         )
-    }
-}
-
-impl<'a> Rounded<'a> {
-    /// Wrap a `&Vec3` for pretty-printing with `decimals` digits.
-    #[inline(always)]
-    pub fn new(v: &'a Vec3, decimals: usize) -> Self {
-        Rounded(v, decimals)
     }
 }

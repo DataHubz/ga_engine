@@ -52,13 +52,13 @@ fn main() {
     for chunk in 0..chunks {
         let base = chunk * BATCH_SIZE;
         let in4 = [
-            points[base + 0],
+            points[base],
             points[base + 1],
             points[base + 2],
             points[base + 3],
         ];
         let out4 = rotor.rotate_simd(in4);
-        out_simd4[base + 0] = out4[0];
+        out_simd4[base] = out4[0];
         out_simd4[base + 1] = out4[1];
         out_simd4[base + 2] = out4[2];
         out_simd4[base + 3] = out4[3];
