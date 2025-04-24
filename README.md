@@ -27,8 +27,8 @@
    - **rotate 3D point classical**: **~5.6 µs**  
    - **rotate 3D point GA (sandwich)**: **~93 µs**  
    - **rotate 3D point GA (fast)**: **~7.9 µs** (≈ 1.4× slower than classical)  
-   - **rotate 3D point GA (SIMD 4×)**: **~10.0 µs** (~2.5 ns per vector, ≈ 2.3× faster)  
-   - **rotate 3D point GA (SIMD 8×)**: **~12.3 µs** (~1.54 ns per vector, ≈ 3.7× faster)  
+   - **rotate 3D point GA (SIMD 4×)**: **~10.0 µs** (≈ 2.3× faster)  
+   - **rotate 3D point GA (SIMD 8×)**: **~12.3 µs** (≈ 3.7× faster)  
 
 These results show that GA can be a drop-in, correct replacement for classical routines, and—when vectorized—can substantially outperform them.
 
@@ -59,6 +59,32 @@ These results show that GA can be a drop-in, correct replacement for classical r
      ```
      producing a terminal coverage table.
 
+## Example
+
+```rust
+use ga_engine::{Vec3, Rotor3, apply_matrix3};
+
+let eps = 1e-12;
+
+// classical 90° about Z
+let p = Vec3::new(1.0, 0.0, 0.0);
+let m = [
+    0.0, -1.0, 0.0,
+    1.0,  0.0, 0.0,
+    0.0,  0.0, 1.0,
+];
+let p1 = apply_matrix3(&m, p);
+
+// GA rotor
+let r = Rotor3::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), std::f64::consts::FRAC_PI_2);
+let p2 = r.rotate(p);
+
+// approximate equality to avoid tiny floating-point residues
+assert!((p1.x - p2.x).abs() < eps);
+assert!((p1.y - p2.y).abs() < eps);
+assert!((p1.z - p2.z).abs() < eps);
+```
+
 ## Next Steps
 - **Micro-optimizations:** unroll, explore f32-precision, widen SIMD lanes further.  
 - **Batch & parallel:** expose batch APIs and Rayon integration for large workloads.  
@@ -66,4 +92,4 @@ These results show that GA can be a drop-in, correct replacement for classical r
 - **Publish & document:** release on crates.io, add code samples, and plot performance charts.
 
 *Chronology:*  
-- **v0.1.0**: Baseline classical & GA implementations + semantic adapters + full benchmarks + coverage tooling + SIMD-4× & SIMD-8× rotors.
+- **v0.1.0**: Baseline classical & GA implementations + semantic adapters + full benchmarks + coverage tooling + SIMD-4× & SIMD-8× rotors.  
