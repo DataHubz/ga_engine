@@ -1,8 +1,7 @@
 // benches/bench.rs
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ga_engine::{multiply_matrices, apply_matrix3, Vec3, Rotor3};
-use ga_engine::ga::geometric_product_full;
+use ga_engine::prelude::*;
 
 const BATCH_SIZE: usize = 1_000;
 
@@ -25,7 +24,7 @@ fn bench_matrix_mult(c: &mut Criterion) {
 
 /// Benchmark full 8-component multivector geometric product.
 fn bench_geometric_product_full(c: &mut Criterion) {
-    let a: [f64; 8] = black_box([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+    let a: [f64; 8] = black_box([1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0]);
     let b = a;
 
     c.bench_function("GA full product 8D × 1000 batch", |bencher| {
@@ -39,7 +38,7 @@ fn bench_geometric_product_full(c: &mut Criterion) {
     });
 }
 
-/// Benchmark rotating a 3D point about Z axis: classical, GA sandwich, GA fast, GA SIMD.
+/// Benchmark rotating a 3D point about Z: classical vs GA (sandwich, fast, SIMD).
 fn bench_rotate_point(c: &mut Criterion) {
     let v0 = Vec3::new(1.0, 0.0, 0.0);
     let m: [f64; 9] = [

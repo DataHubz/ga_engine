@@ -1,3 +1,23 @@
+//! # GAEngine Quickstart
+//!
+//! ```rust
+//! use ga_engine::prelude::*;
+//!
+//! // Rotate (1,0,0) 90° about the Z axis
+//! let v = Vec3::new(1.0, 0.0, 0.0);
+//! let r = Rotor3::from_axis_angle(
+//!     Vec3::new(0.0, 0.0, 1.0),
+//!     std::f64::consts::FRAC_PI_2,
+//! );
+//! let v_rot = r.rotate_fast(v);
+//!
+//! // Should end up at (0,1,0)
+//! const EPS: f64 = 1e-12;
+//! assert!((v_rot.x.abs()) < EPS);
+//! assert!((v_rot.y - 1.0).abs() < EPS);
+//! assert!((v_rot.z).abs() < EPS);
+//! ```
+//!
 #![doc = include_str!("../README.md")]
 
 // Core modules
