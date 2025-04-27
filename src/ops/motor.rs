@@ -3,7 +3,7 @@ use crate::{rotor::Rotor3, vector::Vec3};
 /// A 3-D rigid‐body motor: rotation + translation
 #[derive(Clone, Debug, PartialEq)]
 pub struct Motor3 {
-    pub rotor:       Rotor3,
+    pub rotor: Rotor3,
     pub translation: Vec3,
 }
 

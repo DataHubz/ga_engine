@@ -2,7 +2,7 @@
 //! N-dimensional Euclidean vector type and basic operations.
 
 use crate::nd::types::Scalar;
-use std::ops::{Add, Sub, Mul, Neg};
+use std::ops::{Add, Mul, Neg, Sub};
 
 /// An N-dimensional Euclidean vector.
 #[derive(Debug, Clone, PartialEq)]
@@ -37,11 +37,8 @@ impl<const N: usize> VecN<N> {
     /// Scale the vector by a scalar.
     #[inline]
     pub fn scale(&self, s: Scalar) -> Self {
-        let mut out = self.data;
-        for x in &mut out {
-            *x = *x * s;
-        }
-        Self { data: out }
+        let data = self.data.map(|x| x * s);
+        Self { data }
     }
 }
 
@@ -51,8 +48,8 @@ impl<const N: usize> Add for VecN<N> {
     #[inline]
     fn add(self, rhs: Self) -> Self::Output {
         let mut sum = self.data;
-        for i in 0..N {
-            sum[i] = sum[i] + rhs.data[i];
+        for (s, r) in sum.iter_mut().zip(rhs.data.iter()) {
+            *s += *r;
         }
         Self { data: sum }
     }
@@ -63,8 +60,8 @@ impl<const N: usize> Sub for VecN<N> {
     #[inline]
     fn sub(self, rhs: Self) -> Self::Output {
         let mut diff = self.data;
-        for i in 0..N {
-            diff[i] = diff[i] - rhs.data[i];
+        for (d, r) in diff.iter_mut().zip(rhs.data.iter()) {
+            *d -= *r;
         }
         Self { data: diff }
     }
@@ -74,11 +71,8 @@ impl<const N: usize> Mul<Scalar> for VecN<N> {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Scalar) -> Self::Output {
-        let mut scaled = self.data;
-        for v in &mut scaled {
-            *v = *v * rhs;
-        }
-        Self { data: scaled }
+        let data = self.data.map(|v| v * rhs);
+        Self { data }
     }
 }
 

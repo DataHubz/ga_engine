@@ -1,5 +1,5 @@
 use std::fmt;
-use std::ops::{Add, Sub, Mul, Neg};
+use std::ops::{Add, Mul, Neg, Sub};
 
 /// A 3-D Euclidean vector.
 #[derive(Copy, Clone, Debug, PartialEq)]

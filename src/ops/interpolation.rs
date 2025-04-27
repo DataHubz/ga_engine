@@ -12,10 +12,7 @@ pub fn slerp(r1: &Rotor3, r2: &Rotor3, t: f64) -> Rotor3 {
     let dot = {
         let b1 = r1.bivector();
         let b2 = r2.bivector();
-        r1.scalar() * r2.scalar()
-            + b1.xy * b2.xy
-            + b1.yz * b2.yz
-            + b1.zx * b2.zx
+        r1.scalar() * r2.scalar() + b1.xy * b2.xy + b1.yz * b2.yz + b1.zx * b2.zx
     }
     // Clamp into [-1,1]
     .clamp(-1.0, 1.0);

@@ -1,6 +1,6 @@
 // tests/nd_ga_tests.rs
 
-use ga_engine::nd::ga::{make_gp_table, gp_table_2, gp_table_3};
+use ga_engine::nd::ga::{gp_table_2, gp_table_3, make_gp_table};
 use ga_engine::nd::types::Scalar;
 
 #[test]
@@ -14,21 +14,21 @@ fn make_gp_table_2d_basic_entries() {
 
     // scalar (i=0) times any j yields ( +1, j )
     for j in 0..4 {
-        assert_eq!( idx(0, j), (1.0 as Scalar, j) );
+        assert_eq!(idx(0, j), (1.0 as Scalar, j));
     }
 
     // e1*e1 = +scalar
-    assert_eq!( idx(1, 1), (1.0 as Scalar, 0) );
+    assert_eq!(idx(1, 1), (1.0 as Scalar, 0));
     // e2*e2 = +scalar
-    assert_eq!( idx(2, 2), (1.0 as Scalar, 0) );
+    assert_eq!(idx(2, 2), (1.0 as Scalar, 0));
 
     // e1*e2 = +e12  (1⊕2 = 3)
-    assert_eq!( idx(1, 2), (1.0 as Scalar, 3) );
+    assert_eq!(idx(1, 2), (1.0 as Scalar, 3));
     // e2*e1 = -e12
-    assert_eq!( idx(2, 1), (-1.0 as Scalar, 3) );
+    assert_eq!(idx(2, 1), (-1.0 as Scalar, 3));
 
     // e12*e12 = -scalar
-    assert_eq!( idx(3, 3), (-1.0 as Scalar, 0) );
+    assert_eq!(idx(3, 3), (-1.0 as Scalar, 0));
 }
 
 #[test]
@@ -47,15 +47,15 @@ fn make_gp_table_3d_basic_entries() {
     let idx = |i: usize, j: usize| table[i * 8 + j];
 
     // e1*e2 = +e12 (1⊕2=3)
-    assert_eq!( idx(1, 2), (1.0 as Scalar, 3) );
+    assert_eq!(idx(1, 2), (1.0 as Scalar, 3));
     // e2*e1 = -e12
-    assert_eq!( idx(2, 1), (-1.0 as Scalar, 3) );
+    assert_eq!(idx(2, 1), (-1.0 as Scalar, 3));
 
     // e1*e1 = +1 (scalar)
-    assert_eq!( idx(1, 1), (1.0 as Scalar, 0) );
+    assert_eq!(idx(1, 1), (1.0 as Scalar, 0));
 
     // pseudoscalar e123 index is 1⊕2⊕4 = 7; so e123*e123 = -1
-    assert_eq!( idx(7, 7), (-1.0 as Scalar, 0) );
+    assert_eq!(idx(7, 7), (-1.0 as Scalar, 0));
 }
 
 #[test]

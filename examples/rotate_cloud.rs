@@ -5,7 +5,9 @@ use std::time::Instant;
 /// Simple 64-bit LCG for reproducible “random” floats in [0,1).
 struct Lcg(u64);
 impl Lcg {
-    fn new(seed: u64) -> Self { Lcg(seed) }
+    fn new(seed: u64) -> Self {
+        Lcg(seed)
+    }
     fn next_f64(&mut self) -> f64 {
         // X_{n+1} = a X_n + c  (mod 2⁶⁴)
         self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1);
@@ -28,37 +30,24 @@ fn main() {
 
     // Define our +90° about Z transform, both as matrix and GA rotor.
     let angle = std::f64::consts::FRAC_PI_2;
-    let matrix = [
-         0.0, -1.0, 0.0,
-         1.0,  0.0, 0.0,
-         0.0,  0.0, 1.0,
-    ];
+    let matrix = [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     let rotor = Rotor3::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), angle);
 
     // 1) Classical matrix
     let t0 = Instant::now();
-    let rotated_mat: Vec<_> = points
-        .iter()
-        .map(|&v| apply_matrix3(&matrix, v))
-        .collect();
+    let rotated_mat: Vec<_> = points.iter().map(|&v| apply_matrix3(&matrix, v)).collect();
     let dt_mat = t0.elapsed();
     println!("Classical matrix   : {:>7.3?} for {} points", dt_mat, N);
 
     // 2) GA sandwich (“rotate”)
     let t1 = Instant::now();
-    let _rotated_ga: Vec<_> = points
-        .iter()
-        .map(|&v| rotor.rotate(v))
-        .collect();
+    let _rotated_ga: Vec<_> = points.iter().map(|&v| rotor.rotate(v)).collect();
     let dt_ga = t1.elapsed();
     println!("GA sandwich        : {:>7.3?}", dt_ga);
 
     // 3) GA fast (FMA-chained)
     let t2 = Instant::now();
-    let rotated_fast: Vec<_> = points
-        .iter()
-        .map(|&v| rotor.rotate_fast(v))
-        .collect();
+    let rotated_fast: Vec<_> = points.iter().map(|&v| rotor.rotate_fast(v)).collect();
     let dt_fast = t2.elapsed();
     println!("GA rotate_fast     : {:>7.3?}", dt_fast);
 

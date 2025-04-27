@@ -7,12 +7,12 @@
 //! ```
 
 // core data types
-pub use crate::vector::{Vec3, Rounded};
 pub use crate::bivector::Bivector3;
 pub use crate::multivector::Multivector3;
 pub use crate::rotor::Rotor3;
+pub use crate::vector::{Rounded, Vec3};
 
 // classical ↔ GA kernels
-pub use crate::transform::apply_matrix3;
 pub use crate::classical::multiply_matrices;
 pub use crate::ga::{geometric_product, geometric_product_full};
+pub use crate::transform::apply_matrix3;

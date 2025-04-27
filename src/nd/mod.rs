@@ -1,11 +1,11 @@
 // src/nd/mod.rs
+pub mod ga;
+pub mod gp;
+pub mod multivector;
 pub mod types;
 pub mod vecn;
-pub mod multivector;
-pub mod gp;
-pub mod ga;
 
 // re-exports for easy import:
-pub use vecn::VecN;
+pub use gp::{gp_table_2, gp_table_3, gp_table_4, make_gp_table};
 pub use multivector::Multivector;
-pub use gp::{ make_gp_table, gp_table_2, gp_table_3, gp_table_4 };
+pub use vecn::VecN;

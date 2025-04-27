@@ -24,7 +24,7 @@ fn bench_matrix_mult(c: &mut Criterion) {
 
 /// Benchmark full 8-component multivector geometric product.
 fn bench_geometric_product_full(c: &mut Criterion) {
-    let a: [f64; 8] = black_box([1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0]);
+    let a: [f64; 8] = black_box([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
     let b = a;
 
     c.bench_function("GA full product 8D × 1000 batch", |bencher| {
@@ -41,15 +41,8 @@ fn bench_geometric_product_full(c: &mut Criterion) {
 /// Benchmark rotating a 3D point about Z: classical vs GA (sandwich, fast, SIMD).
 fn bench_rotate_point(c: &mut Criterion) {
     let v0 = Vec3::new(1.0, 0.0, 0.0);
-    let m: [f64; 9] = [
-        0.0, -1.0, 0.0,
-        1.0,  0.0, 0.0,
-        0.0,  0.0, 1.0,
-    ];
-    let rotor = Rotor3::from_axis_angle(
-        Vec3::new(0.0, 0.0, 1.0),
-        std::f64::consts::FRAC_PI_2,
-    );
+    let m: [f64; 9] = [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+    let rotor = Rotor3::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), std::f64::consts::FRAC_PI_2);
 
     c.bench_function("rotate 3D point classical", |bencher| {
         bencher.iter(|| {

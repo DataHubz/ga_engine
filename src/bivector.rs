@@ -3,7 +3,7 @@
 
 use crate::vector::Vec3;
 use std::fmt;
-use std::ops::{Add, Sub, Neg, Mul};
+use std::ops::{Add, Mul, Neg, Sub};
 
 /// A bivector in 3D, representing oriented plane segments:
 /// - `xy` is e₂₃ component (plane perpendicular to x-axis)
@@ -85,7 +85,11 @@ impl Mul<f64> for Bivector3 {
 // Display with debug style
 impl fmt::Display for Bivector3 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "Bivector3 {{ xy: {:.6}, yz: {:.6}, zx: {:.6} }}", self.xy, self.yz, self.zx)
+        write!(
+            f,
+            "Bivector3 {{ xy: {:.6}, yz: {:.6}, zx: {:.6} }}",
+            self.xy, self.yz, self.zx
+        )
     }
 }
 

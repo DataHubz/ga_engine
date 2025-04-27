@@ -33,7 +33,11 @@ fn sign_and_index<const N: usize>(i: usize, j: usize) -> (Scalar, usize) {
         bit += 1;
     }
 
-    let sign = if sgn > 0 { 1.0 as Scalar } else { -1.0 as Scalar };
+    let sign = if sgn > 0 {
+        1.0 as Scalar
+    } else {
+        -1.0 as Scalar
+    };
     (sign, out)
 }
 
@@ -52,8 +56,14 @@ pub fn make_gp_table<const N: usize>() -> Vec<(Scalar, usize)> {
 
 // Example helpers for common small dims, if you want to cache them:
 /// 2‐D GA: 4 blades → 16 entries
-pub fn gp_table_2() -> Vec<(Scalar, usize)> { make_gp_table::<2>() }
+pub fn gp_table_2() -> Vec<(Scalar, usize)> {
+    make_gp_table::<2>()
+}
 /// 3‐D GA: 8 blades → 64 entries
-pub fn gp_table_3() -> Vec<(Scalar, usize)> { make_gp_table::<3>() }
+pub fn gp_table_3() -> Vec<(Scalar, usize)> {
+    make_gp_table::<3>()
+}
 /// 4‐D GA: 16 blades → 256 entries
-pub fn gp_table_4() -> Vec<(Scalar, usize)> { make_gp_table::<4>() }
+pub fn gp_table_4() -> Vec<(Scalar, usize)> {
+    make_gp_table::<4>()
+}

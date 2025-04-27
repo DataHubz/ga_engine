@@ -2,6 +2,7 @@
 name = "ga_engine"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [features]
 # by default we use f64
@@ -12,17 +13,17 @@ f64 = []     # compile everything under `nd` with f64
 nd  = []
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tabwriter = "1.3"
-wide = "0.7"
+serde           = { version = "1.0", features = ["derive"] }
+serde_json      = "1.0"
+tabwriter       = "1.3"
+wide            = "0.7"
+ndarray  = { version = "0.15", features = ["blas"] }
+blas-src = { version = "0.10", features = ["accelerate"] }
 
 [dev-dependencies]
-criterion = "0.4"
-
-[[bench]]
-name = "bench"
-harness = false
+criterion      = "0.4"
+matrixmultiply = "0.3"
+nalgebra       = "0.32"
 
 [[bin]]
 name = "coverage_summary"
@@ -32,3 +33,28 @@ path = "src/bin/coverage_summary.rs"
 opt-level = 3
 lto = true
 codegen-units = 1
+
+[[bench]]
+name    = "bench"
+harness = false
+path    = "benches/bench.rs"
+
+[[bench]]
+name    = "classical"
+harness = false
+path    = "benches/classical.rs"
+
+[[bench]]
+name    = "matrix_matrixmultiply"
+harness = false
+path    = "benches/matrix_matrixmultiply.rs"
+
+[[bench]]
+name    = "matrix_ndarray"
+harness = false
+path    = "benches/matrix_ndarray.rs"
+
+[[bench]]
+name    = "ga_variants"
+harness = false
+path    = "benches/ga_variants.rs"

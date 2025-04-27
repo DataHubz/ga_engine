@@ -97,7 +97,10 @@ pub fn geometric_product_full(a: &[f64; 8], b: &[f64; 8], out: &mut [f64; 8]) {
 ///
 /// Panics if either slice is not length 8.
 pub fn geometric_product(a: &[f64], b: &[f64]) -> Vec<f64> {
-    assert!(a.len() == 8 && b.len() == 8, "Expected 8 components for 3D multivectors");
+    assert!(
+        a.len() == 8 && b.len() == 8,
+        "Expected 8 components for 3D multivectors"
+    );
     let mut a8 = [0.0; 8];
     let mut b8 = [0.0; 8];
     a8.copy_from_slice(a);

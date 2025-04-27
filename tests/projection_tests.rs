@@ -1,7 +1,7 @@
 // tests/projection_tests.rs
 
+use ga_engine::ops::projection::{project_onto, project_onto_plane, reject_from, Vec3Projection};
 use ga_engine::vector::Vec3;
-use ga_engine::ops::projection::{Vec3Projection, project_onto, reject_from, project_onto_plane};
 
 const EPS: f64 = 1e-12;
 

@@ -14,19 +14,12 @@ fn main() {
     }
 
     // classical rotation matrix +90° about Z
-    let m = [
-        0.0, -1.0, 0.0,
-        1.0,  0.0, 0.0,
-        0.0,  0.0, 1.0,
-    ];
+    let m = [0.0, -1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
     // GA rotor for +90° about Z
-    let rotor = Rotor3::from_axis_angle(
-        Vec3::new(0.0, 0.0, 1.0),
-        std::f64::consts::FRAC_PI_2,
-    );
+    let rotor = Rotor3::from_axis_angle(Vec3::new(0.0, 0.0, 1.0), std::f64::consts::FRAC_PI_2);
 
     // 1) Classical matrix
-    let mut out_mat = vec![Vec3::new(0.0,0.0,0.0); N_POINTS];
+    let mut out_mat = vec![Vec3::new(0.0, 0.0, 0.0); N_POINTS];
     let t0 = Instant::now();
     for i in 0..N_POINTS {
         out_mat[i] = apply_matrix3(&m, points[i]);
@@ -36,7 +29,7 @@ fn main() {
     println!("Classical matrix   : {:>8?}, checksum = {}", dt0, sum0);
 
     // 2) GA rotate_fast
-    let mut out_fast = vec![Vec3::new(0.0,0.0,0.0); N_POINTS];
+    let mut out_fast = vec![Vec3::new(0.0, 0.0, 0.0); N_POINTS];
     let t1 = Instant::now();
     for i in 0..N_POINTS {
         out_fast[i] = rotor.rotate_fast(points[i]);
@@ -46,7 +39,7 @@ fn main() {
     println!("GA rotate_fast     : {:>8?}, checksum = {}", dt1, sum1);
 
     // 3) GA SIMD‐4× in tight chunks
-    let mut out_simd4 = vec![Vec3::new(0.0,0.0,0.0); N_POINTS];
+    let mut out_simd4 = vec![Vec3::new(0.0, 0.0, 0.0); N_POINTS];
     let t2 = Instant::now();
     let chunks = N_POINTS / BATCH_SIZE;
     for chunk in 0..chunks {

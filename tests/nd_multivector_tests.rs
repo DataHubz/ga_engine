@@ -12,33 +12,33 @@ fn mv2(data: [Scalar; 4]) -> Multivector<2> {
 #[test]
 fn basis_blade_products_2d() {
     // basis blades in 2D
-    let s   = mv2([1.0, 0.0, 0.0, 0.0]); // scalar 1
-    let e1  = mv2([0.0, 1.0, 0.0, 0.0]);
-    let e2  = mv2([0.0, 0.0, 1.0, 0.0]);
+    let s = mv2([1.0, 0.0, 0.0, 0.0]); // scalar 1
+    let e1 = mv2([0.0, 1.0, 0.0, 0.0]);
+    let e2 = mv2([0.0, 0.0, 1.0, 0.0]);
     let e12 = mv2([0.0, 0.0, 0.0, 1.0]);
 
     // 1 * anything = itself
-    assert_eq!( s.gp(&e1).data, e1.data );
-    assert_eq!( e2.gp(&s).data, e2.data );
+    assert_eq!(s.gp(&e1).data, e1.data);
+    assert_eq!(e2.gp(&s).data, e2.data);
 
     // e1*e1 = +1
-    assert_eq!( e1.gp(&e1).data, s.data );
+    assert_eq!(e1.gp(&e1).data, s.data);
 
     // e2*e2 = +1
-    assert_eq!( e2.gp(&e2).data, s.data );
+    assert_eq!(e2.gp(&e2).data, s.data);
 
     // e1 ∧ e2 = e12
-    assert_eq!( e1.gp(&e2).data, e12.data );
+    assert_eq!(e1.gp(&e2).data, e12.data);
 
     // anti‐commutativity: e2*e1 = –e12
     let mut neg_e12 = e12.data.clone();
     neg_e12[3] = -neg_e12[3];
-    assert_eq!( e2.gp(&e1).data, neg_e12 );
+    assert_eq!(e2.gp(&e1).data, neg_e12);
 
     // pseudoscalar square = (e12)*(e12) = -1
     let mut neg_s = s.data.clone();
     neg_s[0] = -neg_s[0];
-    assert_eq!( e12.gp(&e12).data, neg_s );
+    assert_eq!(e12.gp(&e12).data, neg_s);
 }
 
 #[test]

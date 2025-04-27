@@ -4,11 +4,13 @@ use ga_engine::ga::geometric_product_full;
 
 /// Generate the 8 basis blades as 8-component multivectors.
 fn basis_blades() -> Vec<[f64; 8]> {
-    (0..8).map(|i| {
-        let mut v = [0.0; 8];
-        v[i] = 1.0;
-        v
-    }).collect()
+    (0..8)
+        .map(|i| {
+            let mut v = [0.0; 8];
+            v[i] = 1.0;
+            v
+        })
+        .collect()
 }
 
 #[test]
@@ -43,7 +45,7 @@ fn basis_blade_products_yield_single_nonzero() {
 
 #[test]
 fn unit_vectors_square_to_scalar_one() {
-    let blades = basis_blades();      // ← bind the blades here
+    let blades = basis_blades(); // ← bind the blades here
     for blade in &blades[1..4] {
         let mut out = [0.0; 8];
         geometric_product_full(blade, blade, &mut out);

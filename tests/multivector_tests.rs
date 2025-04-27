@@ -1,6 +1,6 @@
 // tests/multivector_tests.rs
 
-use ga_engine::{Multivector3, Vec3, Bivector3};
+use ga_engine::{Bivector3, Multivector3, Vec3};
 
 const EPS: f64 = 1e-12;
 
@@ -9,7 +9,9 @@ fn zero_multivector_is_all_zero() {
     let m = Multivector3::zero();
     assert!((m.scalar).abs() < EPS);
     assert!((m.vector.x).abs() < EPS && (m.vector.y).abs() < EPS && (m.vector.z).abs() < EPS);
-    assert!((m.bivector.xy).abs() < EPS && (m.bivector.yz).abs() < EPS && (m.bivector.zx).abs() < EPS);
+    assert!(
+        (m.bivector.xy).abs() < EPS && (m.bivector.yz).abs() < EPS && (m.bivector.zx).abs() < EPS
+    );
     assert!((m.pseudo).abs() < EPS);
 }
 
@@ -59,9 +61,9 @@ fn geometric_product_vector_times_vector() {
     assert_eq!(r.vector, Vec3::new(0.0, 0.0, 0.0));
     // bivector = v1 ∧ v2
     let expected_biv = Bivector3::new(
-        v1.y * v2.z - v1.z * v2.y,  // xy = e23
-        v1.z * v2.x - v1.x * v2.z,  // yz = e31
-        v1.x * v2.y - v1.y * v2.x,  // zx = e12
+        v1.y * v2.z - v1.z * v2.y, // xy = e23
+        v1.z * v2.x - v1.x * v2.z, // yz = e31
+        v1.x * v2.y - v1.y * v2.x, // zx = e12
     );
     assert_eq!(r.bivector, expected_biv);
     assert!((r.pseudo).abs() < EPS);

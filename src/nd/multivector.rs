@@ -4,9 +4,9 @@
 //! A multivector in N-dimensional Euclidean space has 2^N components,
 //! one for each basis blade.
 
-use crate::nd::types::Scalar;
 use crate::nd::gp::make_gp_table;
-use std::ops::{Add, Sub, Mul};
+use crate::nd::types::Scalar;
+use std::ops::{Add, Mul, Sub};
 
 /// A full multivector in N dims: 2^N components in lexicographic blade order.
 /// `data[0]` is the scalar part; `data[(1<<N)-1]` is the pseudoscalar.
@@ -32,7 +32,9 @@ impl<const N: usize> Multivector<N> {
 
     /// The zero multivector (all components zero).
     pub fn zero() -> Self {
-        Multivector { data: vec![0.0 as Scalar; 1 << N] }
+        Multivector {
+            data: vec![0.0 as Scalar; 1 << N],
+        }
     }
 
     /// Geometric product: `self * other`, using a runtime GP lookup table.
@@ -43,10 +45,14 @@ impl<const N: usize> Multivector<N> {
         let mut out = vec![0.0 as Scalar; m];
         for i in 0..m {
             let a = self.data[i];
-            if a == 0.0 as Scalar { continue; }
+            if a == 0.0 as Scalar {
+                continue;
+            }
             for j in 0..m {
                 let b = other.data[j];
-                if b == 0.0 as Scalar { continue; }
+                if b == 0.0 as Scalar {
+                    continue;
+                }
                 let (sign, k) = table[i * m + j];
                 out[k] += sign * a * b;
             }
@@ -67,7 +73,7 @@ impl<const N: usize> Add for Multivector<N> {
         let data = self
             .data
             .into_iter()
-            .zip(rhs.data.into_iter())
+            .zip(rhs.data)
             .map(|(a, b)| a + b)
             .collect();
         Multivector { data }
@@ -80,7 +86,7 @@ impl<const N: usize> Sub for Multivector<N> {
         let data = self
             .data
             .into_iter()
-            .zip(rhs.data.into_iter())
+            .zip(rhs.data)
             .map(|(a, b)| a - b)
             .collect();
         Multivector { data }
