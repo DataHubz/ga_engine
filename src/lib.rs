@@ -23,6 +23,7 @@
 // Core modules
 pub mod bivector;
 pub mod classical;
+pub mod clifford_ring;
 pub mod ga;
 pub mod multivector;
 pub mod numerical_checks;
@@ -34,12 +35,6 @@ pub mod vector;
 
 // N-dimensional GA support
 pub mod nd;
-
-// NTRU cryptography support
-pub mod ntru;
-
-// CRYSTALS-Kyber cryptography support
-pub mod kyber;
 
 // --- Public API exports ---
 
