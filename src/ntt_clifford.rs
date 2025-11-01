@@ -50,6 +50,9 @@ pub fn multiply_ntt(
     // Step 2: Point-wise geometric product in frequency domain
     let mut c_ntt = vec![vec![0i64; n]; 8];
 
+    // Pre-allocate result buffer for in-place operations (avoids per-iteration allocation)
+    let mut c_elem = CliffordRingElementInt::zero();
+
     for k in 0..n {
         // At frequency index k, compute geometric product of a_ntt[k] ⊗ b_ntt[k]
         let a_elem = CliffordRingElementInt::from_multivector([
@@ -62,8 +65,8 @@ pub fn multiply_ntt(
             b_ntt[4][k], b_ntt[5][k], b_ntt[6][k], b_ntt[7][k],
         ]);
 
-        // Geometric product in frequency domain
-        let c_elem = a_elem.geometric_product_lazy(&b_elem, lazy);
+        // IN-PLACE geometric product in frequency domain (avoids allocation)
+        a_elem.geometric_product_lazy_inplace(&b_elem, lazy, &mut c_elem);
 
         // Store result components
         for component in 0..8 {

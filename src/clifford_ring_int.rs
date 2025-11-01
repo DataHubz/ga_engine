@@ -268,6 +268,56 @@ impl CliffordRingElementInt {
         Self::from_multivector(result)
     }
 
+    /// In-place geometric product with lazy reduction
+    /// Writes result directly to output buffer (avoids copy)
+    #[inline]
+    pub fn geometric_product_lazy_inplace(
+        &self,
+        other: &Self,
+        lazy: &LazyReductionContext,
+        result: &mut Self,
+    ) {
+        let a = &self.coeffs;
+        let b = &other.coeffs;
+
+        // Scalar component
+        result.coeffs[0] = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]
+                         - a[4]*b[4] - a[5]*b[5] - a[6]*b[6] - a[7]*b[7];
+
+        // e1 component
+        result.coeffs[1] = a[0]*b[1] + a[1]*b[0] - a[2]*b[4] + a[3]*b[5]
+                         + a[4]*b[2] - a[5]*b[3] - a[6]*b[7] - a[7]*b[6];
+
+        // e2 component
+        result.coeffs[2] = a[0]*b[2] + a[1]*b[4] + a[2]*b[0] - a[3]*b[6]
+                         - a[4]*b[1] + a[5]*b[7] + a[6]*b[3] + a[7]*b[5];
+
+        // e3 component
+        result.coeffs[3] = a[0]*b[3] - a[1]*b[5] + a[2]*b[6] + a[3]*b[0]
+                         - a[4]*b[7] - a[5]*b[1] - a[6]*b[2] - a[7]*b[4];
+
+        // e12 component
+        result.coeffs[4] = a[0]*b[4] + a[1]*b[2] - a[2]*b[1] + a[3]*b[7]
+                         + a[4]*b[0] - a[5]*b[6] + a[6]*b[5] + a[7]*b[3];
+
+        // e13 component
+        result.coeffs[5] = a[0]*b[5] + a[1]*b[3] - a[2]*b[7] - a[3]*b[1]
+                         + a[4]*b[6] + a[5]*b[0] - a[6]*b[4] - a[7]*b[2];
+
+        // e23 component
+        result.coeffs[6] = a[0]*b[6] - a[1]*b[7] + a[2]*b[3] - a[3]*b[2]
+                         - a[4]*b[5] + a[5]*b[4] + a[6]*b[0] + a[7]*b[1];
+
+        // e123 component (pseudoscalar)
+        result.coeffs[7] = a[0]*b[7] + a[1]*b[6] - a[2]*b[5] + a[3]*b[4]
+                         + a[4]*b[3] - a[5]*b[2] + a[6]*b[1] + a[7]*b[0];
+
+        // LAZY: Only reduce at the very end!
+        for i in 0..8 {
+            result.coeffs[i] = lazy.finalize(result.coeffs[i]);
+        }
+    }
+
     /// Addition with lazy reduction (no immediate reduction)
     #[inline]
     pub fn add_lazy(&self, other: &Self) -> Self {
