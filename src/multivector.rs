@@ -1,3 +1,5 @@
+// multivector.rs
+
 use crate::{bivector::Bivector3, vector::Vec3};
 use std::fmt;
 use std::ops::{Add, Sub};

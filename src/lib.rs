@@ -24,7 +24,9 @@
 pub mod bivector;
 pub mod classical;
 pub mod clifford_ring;
+pub mod fast_rng;
 pub mod ga;
+pub mod ga_simd_optimized;
 pub mod multivector;
 pub mod numerical_checks;
 pub mod ops;

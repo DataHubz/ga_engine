@@ -23,16 +23,19 @@ pub fn make_gp_table(n: usize) -> Vec<(Scalar, usize)> {
 }
 
 #[deprecated(note = "GP tables are now inlined.")]
+#[allow(deprecated)]
 pub fn gp_table_2() -> Vec<(Scalar, usize)> {
     make_gp_table(2)
 }
 
 #[deprecated(note = "GP tables are now inlined.")]
+#[allow(deprecated)]
 pub fn gp_table_3() -> Vec<(Scalar, usize)> {
     make_gp_table(3)
 }
 
 #[deprecated(note = "GP tables are now inlined.")]
+#[allow(deprecated)]
 pub fn gp_table_4() -> Vec<(Scalar, usize)> {
     make_gp_table(4)
 }
