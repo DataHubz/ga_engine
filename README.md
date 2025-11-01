@@ -350,4 +350,4 @@ ga_engine/
 
 **Built with Rust 🦀 | Performance Proven 📊 | Research Open 🔬**
 
-**From Theory to Practice**: 5 years of theoretical development → aggressive optimization → NIST-competitive performance
+Get in touch: dsilva@datahubz.com
