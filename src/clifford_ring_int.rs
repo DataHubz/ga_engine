@@ -10,11 +10,12 @@
 
 use crate::barrett::BarrettContext;
 use crate::lazy_reduction::LazyReductionContext;
+use crate::clifford_ring_simd::geometric_product_lazy_optimized;
 
 /// Clifford algebra Cl(3,0) ring element with integer coefficients
 /// Basis: {1, e1, e2, e3, e12, e13, e23, e123}
 /// Dimension: 8
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CliffordRingElementInt {
     pub coeffs: [i64; 8],
 }
@@ -30,6 +31,12 @@ impl CliffordRingElementInt {
     #[inline]
     pub fn zero() -> Self {
         Self { coeffs: [0; 8] }
+    }
+
+    /// Check if element is zero
+    #[inline]
+    pub fn is_zero(&self) -> bool {
+        self.coeffs.iter().all(|&c| c == 0)
     }
 
     /// Create scalar element
@@ -538,6 +545,93 @@ impl CliffordPolynomialInt {
             return self.multiply_naive_lazy(other, lazy);
         }
 
+        // Karatsuba recursion
+        self.multiply_karatsuba_lazy_impl(other, lazy)
+    }
+
+    /// SIMD-optimized Karatsuba multiplication with lazy reduction
+    /// Uses SIMD-optimized geometric product at the base case for better performance
+    pub fn multiply_karatsuba_lazy_simd(&self, other: &Self, lazy: &LazyReductionContext) -> Self {
+        let n = self.coeffs.len();
+        let m = other.coeffs.len();
+
+        // Base case: use SIMD-optimized naive multiplication
+        if n <= 8 || m <= 8 {
+            return self.multiply_naive_lazy_simd(other, lazy);
+        }
+
+        // Karatsuba recursion (will call SIMD base case)
+        self.multiply_karatsuba_lazy_simd_impl(other, lazy)
+    }
+
+    fn multiply_karatsuba_lazy_simd_impl(&self, other: &Self, lazy: &LazyReductionContext) -> Self {
+        let n = self.coeffs.len();
+        let m = other.coeffs.len();
+
+        // Base case already handled by caller
+
+        // Karatsuba split
+        let mid = n / 2;
+
+        let (a0_vec, a1_vec) = self.coeffs.split_at(mid);
+        let (b0_vec, b1_vec) = other.coeffs.split_at(mid.min(m));
+
+        let a0 = Self::new(a0_vec.to_vec());
+        let a1 = Self::new(a1_vec.to_vec());
+        let b0 = Self::new(b0_vec.to_vec());
+        let b1 = Self::new(b1_vec.to_vec());
+
+        // Three recursive multiplications (SIMD version)
+        let z0 = a0.multiply_karatsuba_lazy_simd(&b0, lazy);
+        let z2 = a1.multiply_karatsuba_lazy_simd(&b1, lazy);
+
+        // LAZY: Use add_lazy (no reduction!) for intermediate sums
+        let a0_plus_a1 = a0.add_lazy_poly(&a1);
+        let b0_plus_b1 = b0.add_lazy_poly(&b1);
+        let z1_full = a0_plus_a1.multiply_karatsuba_lazy_simd(&b0_plus_b1, lazy);
+
+        // z1 = z1_full - z0 - z2 (using lazy subtraction)
+        let mut z1 = z1_full;
+        for i in 0..z1.coeffs.len().min(z0.coeffs.len()) {
+            z1.coeffs[i] = z1.coeffs[i].sub_lazy(&z0.coeffs[i]);
+        }
+        for i in 0..z1.coeffs.len().min(z2.coeffs.len()) {
+            z1.coeffs[i] = z1.coeffs[i].sub_lazy(&z2.coeffs[i]);
+        }
+
+        // Combine: result = z0 + z1*x^mid + z2*x^(2*mid)
+        // LAZY: Accumulate without reduction, reduce only at end
+        let result_len = n + m - 1;
+        let mut result_coeffs = vec![CliffordRingElementInt::zero(); result_len];
+
+        for i in 0..z0.coeffs.len().min(result_len) {
+            result_coeffs[i] = result_coeffs[i].add_lazy(&z0.coeffs[i]);
+        }
+        for i in 0..z1.coeffs.len() {
+            if i + mid < result_len {
+                result_coeffs[i + mid] = result_coeffs[i + mid].add_lazy(&z1.coeffs[i]);
+            }
+        }
+        for i in 0..z2.coeffs.len() {
+            if i + 2*mid < result_len {
+                result_coeffs[i + 2*mid] = result_coeffs[i + 2*mid].add_lazy(&z2.coeffs[i]);
+            }
+        }
+
+        // FINALIZE: Reduce all coefficients at the very end!
+        for coeff in &mut result_coeffs {
+            *coeff = coeff.finalize_lazy(lazy);
+        }
+
+        Self::new(result_coeffs)
+    }
+
+    fn multiply_karatsuba_lazy_impl(&self, other: &Self, lazy: &LazyReductionContext) -> Self {
+        let n = self.coeffs.len();
+        let m = other.coeffs.len();
+
+        // Base case already handled by caller
+
         // Karatsuba split
         let mid = n / 2;
 
@@ -603,6 +697,29 @@ impl CliffordPolynomialInt {
         for i in 0..n {
             for j in 0..m {
                 let prod = self.coeffs[i].geometric_product_lazy(&other.coeffs[j], lazy);
+                result[i + j] = result[i + j].add_lazy(&prod);
+            }
+        }
+
+        // FINALIZE: Reduce all accumulated values
+        for coeff in &mut result {
+            *coeff = coeff.finalize_lazy(lazy);
+        }
+
+        Self::new(result)
+    }
+
+    /// SIMD-optimized naive multiplication with lazy reduction
+    /// Uses the SIMD-optimized geometric product for better performance
+    fn multiply_naive_lazy_simd(&self, other: &Self, lazy: &LazyReductionContext) -> Self {
+        let n = self.coeffs.len();
+        let m = other.coeffs.len();
+        let mut result = vec![CliffordRingElementInt::zero(); n + m - 1];
+
+        for i in 0..n {
+            for j in 0..m {
+                // Use SIMD-optimized geometric product
+                let prod = geometric_product_lazy_optimized(&self.coeffs[i], &other.coeffs[j], lazy);
                 result[i + j] = result[i + j].add_lazy(&prod);
             }
         }
