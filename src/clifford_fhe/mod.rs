@@ -50,6 +50,7 @@ pub mod ckks;
 pub mod encoding;
 pub mod geometric_product;
 pub mod keys;
+pub mod operations;
 pub mod params;
 
 // Re-exports
