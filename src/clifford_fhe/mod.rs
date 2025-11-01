@@ -54,7 +54,7 @@ pub mod operations;
 pub mod params;
 
 // Re-exports
-pub use ckks::{Ciphertext, Plaintext};
+pub use ckks::{multiply_by_plaintext, Ciphertext, Plaintext};
 pub use encoding::{decode_multivector, encode_multivector};
 pub use geometric_product::geometric_product_homomorphic;
 pub use keys::{EvaluationKey, PublicKey, SecretKey};

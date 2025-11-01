@@ -162,6 +162,39 @@ pub fn decrypt(sk: &SecretKey, ct: &Ciphertext, params: &CliffordFHEParams) -> P
     Plaintext::new(m_prime, ct.scale)
 }
 
+/// Multiply ciphertext by plaintext polynomial
+///
+/// This is CKKS plaintext-ciphertext multiplication:
+/// ct × pt = (c0 × pt, c1 × pt)
+///
+/// No relinearization needed! This is much faster than ciphertext-ciphertext multiplication.
+/// Used for component extraction and other masking operations.
+///
+/// # Arguments
+/// * `ct` - Ciphertext to multiply
+/// * `pt` - Plaintext polynomial (e.g., selection mask)
+/// * `params` - CKKS parameters
+pub fn multiply_by_plaintext(
+    ct: &Ciphertext,
+    pt: &Plaintext,
+    params: &CliffordFHEParams,
+) -> Ciphertext {
+    let q = params.modulus_at_level(ct.level);
+    let n = ct.n;
+
+    // Multiply each ciphertext component by plaintext
+    // c0' = c0 × pt (mod q)
+    let c0_new = polynomial_multiply_ntt(&ct.c0, &pt.coeffs, q, n);
+
+    // c1' = c1 × pt (mod q)
+    let c1_new = polynomial_multiply_ntt(&ct.c1, &pt.coeffs, q, n);
+
+    // Scale is multiplied (CKKS scaling semantics)
+    let new_scale = ct.scale * pt.scale / params.scale;
+
+    Ciphertext::new(c0_new, c1_new, ct.level, new_scale)
+}
+
 /// Homomorphic addition
 ///
 /// Add two ciphertexts component-wise:

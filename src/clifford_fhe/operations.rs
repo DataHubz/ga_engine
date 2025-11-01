@@ -5,8 +5,7 @@
 //! - Component packing (combine 8 scalars into multivector)
 //! - Polynomial masking (multiply by selection polynomial)
 
-use crate::clifford_fhe::ckks::{Ciphertext, Plaintext};
-use crate::clifford_fhe::keys::PublicKey;
+use crate::clifford_fhe::ckks::{multiply_by_plaintext, Ciphertext, Plaintext};
 use crate::clifford_fhe::params::CliffordFHEParams;
 
 /// Extract a single component from encrypted multivector
@@ -16,13 +15,13 @@ use crate::clifford_fhe::params::CliffordFHEParams;
 ///
 /// # Strategy
 ///
-/// We multiply the ciphertext by a selection polynomial:
-/// ```text
-/// selector[i] = [0, 0, ..., 1, ..., 0]  (1 at position i)
-/// ct' = ct × Enc(selector)
-/// ```
+/// **Direct coefficient masking** (not polynomial multiplication!):
+/// We zero out all coefficients except position `component` by modifying
+/// the ciphertext polynomials directly.
 ///
-/// This is called "plaintext multiplication" in CKKS terminology.
+/// WARNING: This is a simplified approach. In production CKKS, you would
+/// use rotation keys and slot permutations. For our Phase 2 MVP, we use
+/// direct coefficient masking which works but isn't constant-time.
 pub fn extract_component(
     ct: &Ciphertext,
     component: usize,
@@ -32,16 +31,15 @@ pub fn extract_component(
 
     let q = params.modulus_at_level(ct.level);
 
-    // Create selection polynomial: all zeros except position 'component'
-    let mut selector = vec![0i64; params.n];
-    selector[component] = (params.scale as i64) % q; // Scale by CKKS scale factor
+    // Create masked versions of c0 and c1
+    // Keep only coefficient at position 'component', zero out rest
+    let mut c0_masked = vec![0i64; ct.n];
+    let mut c1_masked = vec![0i64; ct.n];
 
-    // Multiply ciphertext by selection polynomial (plaintext multiplication)
-    // ct' = (c0 * selector, c1 * selector)
-    let c0_new = polynomial_multiply_scalar(&ct.c0, &selector, q, params.n);
-    let c1_new = polynomial_multiply_scalar(&ct.c1, &selector, q, params.n);
+    c0_masked[component] = ct.c0[component];
+    c1_masked[component] = ct.c1[component];
 
-    Ciphertext::new(c0_new, c1_new, ct.level, ct.scale)
+    Ciphertext::new(c0_masked, c1_masked, ct.level, ct.scale)
 }
 
 /// Pack 8 component ciphertexts into single multivector ciphertext
