@@ -29,8 +29,8 @@
 //! We compute this HOMOMORPHICALLY using CKKS multiplication!
 
 use crate::clifford_fhe::ckks::Ciphertext;
-use crate::clifford_fhe::keys::{EvaluationKey, RotationKey};
-use crate::clifford_fhe::operations::{add_ciphertexts, compute_component_product, multiply_by_scalar};
+use crate::clifford_fhe::keys::{EvaluationKey, RotationKey, PublicKey, SecretKey};
+use crate::clifford_fhe::operations::{add_ciphertexts, compute_component_product, compute_component_product_simple, multiply_by_scalar};
 use crate::clifford_fhe::params::CliffordFHEParams;
 
 /// Cl(3,0) basis elements
@@ -248,6 +248,80 @@ pub fn geometric_product_homomorphic(
             // Compute ct_a[src_a] * ct_b[src_b] and place result at position target
             let product_ct = compute_component_product(
                 ct_a, src_a, ct_b, src_b, target, evk, rotk, params,
+            );
+
+            // Apply coefficient (+1 or -1)
+            let scaled = if coeff == 1 {
+                product_ct
+            } else {
+                multiply_by_scalar(&product_ct, coeff as i64, params)
+            };
+
+            // Add to global result
+            result = Some(match result {
+                None => scaled,
+                Some(acc) => add_ciphertexts(&acc, &scaled, params),
+            });
+        }
+    }
+
+    result.expect("Geometric product produced empty result")
+}
+
+/// Homomorphic geometric product using simple rotation (SIMPLE VERSION)
+///
+/// This version uses simple rotation (decrypt-rotate-encrypt) instead of automorphism-based
+/// rotation keys. It's slower but works correctly while we fix the canonical embedding.
+///
+/// # WARNING
+/// This is a temporary implementation that requires the secret key!
+/// Not suitable for production FHE, but sufficient for testing.
+///
+/// # Arguments
+/// * `ct_a` - Ciphertext encrypting multivector a
+/// * `ct_b` - Ciphertext encrypting multivector b
+/// * `evk` - Evaluation key for multiplication
+/// * `sk` - Secret key (for simple rotation)
+/// * `pk` - Public key (for simple rotation)
+/// * `params` - FHE parameters
+///
+/// # Returns
+/// Ciphertext encrypting a ⊗ b
+///
+/// # Example
+/// ```rust,ignore
+/// let ct_a = encrypt(&pk, &mv_a, &params);
+/// let ct_b = encrypt(&pk, &mv_b, &params);
+///
+/// // Homomorphic geometric product!
+/// let ct_c = geometric_product_homomorphic_simple(&ct_a, &ct_b, &evk, &sk, &pk, &params);
+///
+/// let mv_c = decrypt(&sk, &ct_c, &params);
+/// // mv_c should equal mv_a ⊗ mv_b !
+/// ```
+pub fn geometric_product_homomorphic_simple(
+    ct_a: &Ciphertext,
+    ct_b: &Ciphertext,
+    evk: &EvaluationKey,
+    sk: &SecretKey,
+    pk: &PublicKey,
+    params: &CliffordFHEParams,
+) -> Ciphertext {
+    let structure = StructureConstants::new_cl30();
+
+    // Array to collect result for each component position
+    // We'll build up the full result by computing each component's contributions
+    let mut result: Option<Ciphertext> = None;
+
+    // For each output component (0-7)
+    for target in 0..8 {
+        let products = structure.get_products_for(target);
+
+        // Accumulate all products contributing to this component
+        for &(coeff, _target, src_a, src_b) in products {
+            // Compute ct_a[src_a] * ct_b[src_b] and place result at position target
+            let product_ct = compute_component_product_simple(
+                ct_a, src_a, ct_b, src_b, target, evk, sk, pk, params,
             );
 
             // Apply coefficient (+1 or -1)

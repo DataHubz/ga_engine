@@ -7,8 +7,9 @@
 //! IMPORTANT: This uses rotation keys, not component extraction!
 
 use crate::clifford_fhe::ckks::{multiply, multiply_by_plaintext, rotate, Ciphertext, Plaintext};
-use crate::clifford_fhe::keys::{EvaluationKey, RotationKey};
+use crate::clifford_fhe::keys::{EvaluationKey, RotationKey, PublicKey, SecretKey};
 use crate::clifford_fhe::params::CliffordFHEParams;
+use crate::clifford_fhe::simple_rotation::rotate_slots_simple;
 
 /// Compute product of component i from ct_a with component j from ct_b
 ///
@@ -81,6 +82,83 @@ pub fn compute_component_product(
         ct_product
     } else {
         rotate(&ct_product, rotation_amount, rotk, params)
+    }
+}
+
+/// Compute product of component i from ct_a with component j from ct_b (SIMPLE VERSION)
+///
+/// This version uses simple rotation (decrypt-rotate-encrypt) instead of automorphism-based
+/// rotation. It's slower but works correctly while we fix the canonical embedding.
+///
+/// # WARNING
+/// This is a temporary implementation that requires the secret key!
+/// Not suitable for production FHE, but sufficient for testing.
+///
+/// # Arguments
+/// * `ct_a` - First ciphertext (encrypts multivector a)
+/// * `i` - Component index from ct_a (0-7 for Cl(3,0))
+/// * `ct_b` - Second ciphertext (encrypts multivector b)
+/// * `j` - Component index from ct_b (0-7)
+/// * `target_position` - Where to place the result (0-7)
+/// * `evk` - Evaluation key for multiplication
+/// * `sk` - Secret key (for simple rotation)
+/// * `pk` - Public key (for simple rotation)
+/// * `params` - FHE parameters
+///
+/// # Returns
+/// Ciphertext encrypting the product a[i] * b[j] at position `target_position`
+pub fn compute_component_product_simple(
+    ct_a: &Ciphertext,
+    i: usize,
+    ct_b: &Ciphertext,
+    j: usize,
+    target_position: usize,
+    evk: &EvaluationKey,
+    sk: &SecretKey,
+    pk: &PublicKey,
+    params: &CliffordFHEParams,
+) -> Ciphertext {
+    assert!(i < 8 && j < 8 && target_position < 8, "Invalid component index");
+
+    // Create selector polynomials (1 at position i or j, 0 elsewhere)
+    let mut selector_i = vec![0i64; params.n];
+    selector_i[i] = params.scale as i64;
+    let pt_i = Plaintext::new(selector_i, params.scale);
+
+    let mut selector_j = vec![0i64; params.n];
+    selector_j[j] = params.scale as i64;
+    let pt_j = Plaintext::new(selector_j, params.scale);
+
+    // Mask ct_a to select component i
+    let ct_a_masked = multiply_by_plaintext(ct_a, &pt_i, params);
+
+    // Mask ct_b to select component j
+    let ct_b_masked = multiply_by_plaintext(ct_b, &pt_j, params);
+
+    // Multiply the masked ciphertexts
+    // Result has product at position (i+j) with negacyclic reduction
+    let ct_product = multiply(&ct_a_masked, &ct_b_masked, evk, params);
+
+    // Compute where the product ended up after polynomial multiplication
+    let product_position = if i + j < params.n {
+        i + j
+    } else {
+        (i + j) % params.n
+    };
+
+    // Rotate to move product from product_position to target_position
+    let rotation_amount = if target_position >= product_position {
+        (target_position - product_position) as isize
+    } else {
+        (params.n + target_position - product_position) as isize
+    };
+
+    if rotation_amount == 0 {
+        // No rotation needed
+        ct_product
+    } else {
+        // Use simple rotation instead of automorphism-based rotation
+        rotate_slots_simple(&ct_product, rotation_amount, sk, pk, params)
     }
 }
 
