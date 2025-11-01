@@ -24,3 +24,6 @@ paper/
 *.fls
 *.synctex.gz
 *.pdf
+
+# Audit and analysis (security reviews, working notes)
+audit/
