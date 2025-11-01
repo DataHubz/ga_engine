@@ -27,6 +27,7 @@ pub mod classical;
 pub mod clifford_ring;
 pub mod clifford_ring_int;  // Integer arithmetic for cryptography
 pub mod clifford_ring_simd;  // SIMD-optimized geometric product (ARM NEON)
+pub mod clifford_lwe;  // Clifford-LWE cryptosystem with homomorphic operations
 pub mod ntt;  // Number Theoretic Transform for O(N log N) polynomial multiplication
 pub mod ntt_clifford;  // NTT extended to Clifford ring polynomials
 pub mod ntt_simd;  // SIMD-batched NTT for parallel component processing
