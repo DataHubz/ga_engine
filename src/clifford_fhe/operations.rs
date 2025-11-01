@@ -71,9 +71,9 @@ pub fn compute_component_product(
 
     // Rotate to move product from product_position to target_position
     let rotation_amount = if target_position >= product_position {
-        target_position - product_position
+        (target_position - product_position) as isize
     } else {
-        params.n + target_position - product_position
+        (params.n + target_position - product_position) as isize
     };
 
     if rotation_amount == 0 {

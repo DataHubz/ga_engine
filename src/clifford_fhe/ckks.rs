@@ -299,46 +299,49 @@ pub fn multiply(
     Ciphertext::new(new_c0, new_c1, new_level, new_scale)
 }
 
-/// Rotate ciphertext coefficients by r positions
+/// Rotate SIMD slots by r positions using Galois automorphisms
 ///
-/// This operation allows "moving" coefficients to different positions,
-/// which is essential for geometric product implementation.
+/// This is the proper CKKS slot rotation using Galois automorphisms.
+/// Positive r rotates left, negative r rotates right.
 ///
-/// Uses rotation keys generated during key generation.
+/// # Arguments
+/// * `ct` - Ciphertext to rotate
+/// * `rotation_amount` - Number of slots to rotate (positive = left, negative = right)
+/// * `rotk` - Rotation keys generated during key generation
+/// * `params` - FHE parameters
 ///
 /// # Example
-/// If ct encrypts [a0, a1, a2, a3, ...], then rotate(ct, 2) encrypts [a2, a3, ..., a0, a1]
-/// (with appropriate sign changes due to negacyclic reduction)
-pub fn rotate(
+/// If ct encrypts slots [a0, a1, a2, a3, a4, a5, a6, a7, ...],
+/// then rotate(ct, 2) encrypts [a2, a3, a4, a5, a6, a7, a0, a1, ...]
+pub fn rotate_slots(
     ct: &Ciphertext,
-    rotation_amount: usize,
+    rotation_amount: isize,
     rotk: &RotationKey,
     params: &CliffordFHEParams,
 ) -> Ciphertext {
+    use crate::clifford_fhe::automorphisms::{rotation_to_automorphism, apply_automorphism};
+
     let n = ct.n;
     let q = params.modulus_at_level(ct.level);
 
-    // Find the rotation key for this amount
-    let rot_key = rotk
+    // Convert rotation amount to automorphism index
+    let k = rotation_to_automorphism(rotation_amount, n);
+
+    // Get rotation key for this automorphism
+    let (rot_key_0, rot_key_1) = rotk
         .keys
-        .iter()
-        .find(|(r, _, _)| *r == rotation_amount)
-        .expect("Rotation key not found for this amount");
+        .get(&k)
+        .expect(&format!("Rotation key not found for rotation {} (automorphism index {})", rotation_amount, k));
 
-    let (_, rot_key_0, rot_key_1) = rot_key;
+    // Apply Galois automorphism σₖ to ciphertext components
+    // This permutes the slots according to the rotation
+    let c0_auto = apply_automorphism(&ct.c0, k, n);
+    let c1_auto = apply_automorphism(&ct.c1, k, n);
 
-    // Apply automorphism to ciphertext components
-    // For rotation by r, we compute:
-    // - c0_rot = c0(x^r)
-    // - c1_rot = c1(x^r)
-    // Then use rotation key to fix up the encryption
-    let c0_rotated = apply_automorphism(&ct.c0, rotation_amount, n);
-    let c1_rotated = apply_automorphism(&ct.c1, rotation_amount, n);
-
-    // Apply rotation key to correct the encryption
-    // new_c0 = c0_rotated + c1_rotated * rot_key_0
-    let c1_times_rk0 = polynomial_multiply_ntt(&c1_rotated, rot_key_0, q, n);
-    let new_c0: Vec<i64> = c0_rotated
+    // Apply key switching using rotation key
+    // new_c0 = c0_auto + c1_auto * rot_key_0
+    let c1_times_rk0 = polynomial_multiply_ntt(&c1_auto, rot_key_0, q, n);
+    let new_c0: Vec<i64> = c0_auto
         .iter()
         .zip(&c1_times_rk0)
         .map(|(a, b)| {
@@ -347,29 +350,20 @@ pub fn rotate(
         })
         .collect();
 
-    // new_c1 = c1_rotated * rot_key_1
-    let new_c1 = polynomial_multiply_ntt(&c1_rotated, rot_key_1, q, n);
+    // new_c1 = c1_auto * rot_key_1
+    let new_c1 = polynomial_multiply_ntt(&c1_auto, rot_key_1, q, n);
 
     Ciphertext::new(new_c0, new_c1, ct.level, ct.scale)
 }
 
-/// Apply automorphism x → x^r to polynomial
-///
-/// This is the core operation for rotation in CKKS
-fn apply_automorphism(poly: &[i64], r: usize, n: usize) -> Vec<i64> {
-    let mut result = vec![0i64; n];
-
-    for i in 0..n {
-        let new_idx = (i * r) % (2 * n);
-        if new_idx < n {
-            result[new_idx] = poly[i];
-        } else {
-            // Negacyclic reduction: x^n = -1
-            result[new_idx % n] = -poly[i];
-        }
-    }
-
-    result
+/// Backward compatibility alias for rotate
+pub fn rotate(
+    ct: &Ciphertext,
+    rotation_amount: isize,
+    rotk: &RotationKey,
+    params: &CliffordFHEParams,
+) -> Ciphertext {
+    rotate_slots(ct, rotation_amount, rotk, params)
 }
 
 /// Relinearize degree-2 ciphertext to degree-1

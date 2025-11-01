@@ -54,10 +54,12 @@ pub mod keys;
 pub mod operations;
 pub mod params;
 pub mod slot_encoding;
+pub mod slot_operations;
 
 // Re-exports
-pub use ckks::{decrypt, encrypt, multiply_by_plaintext, rotate, Ciphertext, Plaintext};
+pub use ckks::{decrypt, encrypt, multiply_by_plaintext, rotate, rotate_slots, Ciphertext, Plaintext};
 pub use encoding::{decode_multivector, encode_multivector};
 pub use geometric_product::geometric_product_homomorphic;
 pub use keys::{keygen, keygen_with_rotation, EvaluationKey, PublicKey, RotationKey, SecretKey};
 pub use params::CliffordFHEParams;
+pub use slot_encoding::{encode_multivector_slots, decode_multivector_slots};
