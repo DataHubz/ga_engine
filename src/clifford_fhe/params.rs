@@ -37,6 +37,27 @@ pub struct CliffordFHEParams {
 }
 
 impl CliffordFHEParams {
+    /// Minimal parameters for testing (NOT SECURE!)
+    ///
+    /// Use this only for development/testing. Much faster key generation.
+    pub fn new_test() -> Self {
+        Self {
+            n: 64, // Very small for fast testing
+            moduli: vec![
+                // Just a few levels for testing
+                40, // Level 0
+                40, // Level 1
+                40, // Level 2
+            ]
+            .iter()
+            .map(|bits| Self::generate_prime(*bits))
+            .collect(),
+            scale: 2f64.powi(20), // Smaller scale for testing
+            error_std: 3.2,
+            security: SecurityLevel::Bit128, // Claimed, not actual!
+        }
+    }
+
     /// Parameters for 128-bit security
     ///
     /// Optimized for:

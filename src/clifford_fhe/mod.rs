@@ -54,8 +54,8 @@ pub mod operations;
 pub mod params;
 
 // Re-exports
-pub use ckks::{multiply_by_plaintext, Ciphertext, Plaintext};
+pub use ckks::{decrypt, encrypt, multiply_by_plaintext, rotate, Ciphertext, Plaintext};
 pub use encoding::{decode_multivector, encode_multivector};
 pub use geometric_product::geometric_product_homomorphic;
-pub use keys::{EvaluationKey, PublicKey, SecretKey};
+pub use keys::{keygen, keygen_with_rotation, EvaluationKey, PublicKey, RotationKey, SecretKey};
 pub use params::CliffordFHEParams;

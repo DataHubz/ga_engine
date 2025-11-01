@@ -1,124 +1,97 @@
 //! Advanced CKKS operations for Clifford-FHE
 //!
 //! This module provides operations needed for homomorphic geometric product:
-//! - Component extraction (isolate one coefficient from polynomial)
-//! - Component packing (combine 8 scalars into multivector)
-//! - Polynomial masking (multiply by selection polynomial)
+//! - Component product computation (multiply specific coefficients using rotation)
+//! - Component packing (combine results into multivector)
+//!
+//! IMPORTANT: This uses rotation keys, not component extraction!
 
-use crate::clifford_fhe::ckks::{multiply_by_plaintext, Ciphertext, Plaintext};
+use crate::clifford_fhe::ckks::{multiply, multiply_by_plaintext, rotate, Ciphertext, Plaintext};
+use crate::clifford_fhe::keys::{EvaluationKey, RotationKey};
 use crate::clifford_fhe::params::CliffordFHEParams;
 
-/// Extract a single component from encrypted multivector
+/// Compute product of component i from ct_a with component j from ct_b
 ///
-/// Given ct = Enc([c0, c1, c2, c3, c4, c5, c6, c7, 0, 0, ...])
-/// Returns ct' = Enc([0, 0, ci, 0, 0, 0, 0, 0, 0, ...])
+/// Strategy:
+/// 1. Mask ct_a to isolate component i (multiplication with selector polynomial)
+/// 2. Mask ct_b to isolate component j
+/// 3. Multiply the masked ciphertexts
+/// 4. The result has the product at position (i+j) mod N
+/// 5. Use rotation to move it to the desired position k
 ///
-/// # Strategy
+/// # Arguments
+/// * `ct_a` - First ciphertext (encrypts multivector a)
+/// * `i` - Component index from ct_a (0-7 for Cl(3,0))
+/// * `ct_b` - Second ciphertext (encrypts multivector b)
+/// * `j` - Component index from ct_b (0-7)
+/// * `target_position` - Where to place the result (0-7)
+/// * `evk` - Evaluation key for multiplication
+/// * `rotk` - Rotation key for moving result to target position
+/// * `params` - FHE parameters
 ///
-/// **Direct coefficient masking** (not polynomial multiplication!):
-/// We zero out all coefficients except position `component` by modifying
-/// the ciphertext polynomials directly.
-///
-/// WARNING: This is a simplified approach. In production CKKS, you would
-/// use rotation keys and slot permutations. For our Phase 2 MVP, we use
-/// direct coefficient masking which works but isn't constant-time.
-pub fn extract_component(
-    ct: &Ciphertext,
-    component: usize,
+/// # Returns
+/// Ciphertext encrypting the product a[i] * b[j] at position `target_position`
+pub fn compute_component_product(
+    ct_a: &Ciphertext,
+    i: usize,
+    ct_b: &Ciphertext,
+    j: usize,
+    target_position: usize,
+    evk: &EvaluationKey,
+    rotk: &RotationKey,
     params: &CliffordFHEParams,
 ) -> Ciphertext {
-    assert!(component < 8, "Component must be 0-7 for Cl(3,0)");
+    assert!(i < 8 && j < 8 && target_position < 8, "Invalid component index");
 
-    let q = params.modulus_at_level(ct.level);
+    // Create selector polynomials (1 at position i or j, 0 elsewhere)
+    let mut selector_i = vec![0i64; params.n];
+    selector_i[i] = params.scale as i64;
+    let pt_i = Plaintext::new(selector_i, params.scale);
 
-    // Create masked versions of c0 and c1
-    // Keep only coefficient at position 'component', zero out rest
-    let mut c0_masked = vec![0i64; ct.n];
-    let mut c1_masked = vec![0i64; ct.n];
+    let mut selector_j = vec![0i64; params.n];
+    selector_j[j] = params.scale as i64;
+    let pt_j = Plaintext::new(selector_j, params.scale);
 
-    c0_masked[component] = ct.c0[component];
-    c1_masked[component] = ct.c1[component];
+    // Mask ct_a to select component i
+    let ct_a_masked = multiply_by_plaintext(ct_a, &pt_i, params);
 
-    Ciphertext::new(c0_masked, c1_masked, ct.level, ct.scale)
-}
+    // Mask ct_b to select component j
+    let ct_b_masked = multiply_by_plaintext(ct_b, &pt_j, params);
 
-/// Pack 8 component ciphertexts into single multivector ciphertext
-///
-/// Given: ct0 = Enc([c0, 0, ...]), ct1 = Enc([0, c1, 0, ...]), etc.
-/// Returns: ct = Enc([c0, c1, c2, c3, c4, c5, c6, c7, 0, ...])
-///
-/// # Strategy
-///
-/// We shift each component to its proper position and add them:
-/// ```text
-/// ct = ct0 + shift(ct1, 1) + shift(ct2, 2) + ... + shift(ct7, 7)
-/// ```
-///
-/// But wait! Components are already at the right positions (0-7).
-/// So we just need to add all ciphertexts:
-/// ```text
-/// ct = ct0 + ct1 + ct2 + ... + ct7
-/// ```
-pub fn pack_components(
-    components: &[Ciphertext; 8],
-    params: &CliffordFHEParams,
-) -> Ciphertext {
-    let mut result = components[0].clone();
+    // Multiply the masked ciphertexts
+    // Result has product at position (i+j) with negacyclic reduction
+    let ct_product = multiply(&ct_a_masked, &ct_b_masked, evk, params);
 
-    for i in 1..8 {
-        result = add_ciphertexts(&result, &components[i], params);
+    // Compute where the product ended up after polynomial multiplication
+    let product_position = if i + j < params.n {
+        i + j
+    } else {
+        (i + j) % params.n
+    };
+
+    // Rotate to move product from product_position to target_position
+    let rotation_amount = if target_position >= product_position {
+        target_position - product_position
+    } else {
+        params.n + target_position - product_position
+    };
+
+    if rotation_amount == 0 {
+        // No rotation needed
+        ct_product
+    } else {
+        rotate(&ct_product, rotation_amount, rotk, params)
     }
-
-    result
 }
 
 /// Add two ciphertexts (component-wise addition)
-fn add_ciphertexts(
+pub fn add_ciphertexts(
     ct1: &Ciphertext,
     ct2: &Ciphertext,
     params: &CliffordFHEParams,
 ) -> Ciphertext {
-    assert_eq!(ct1.level, ct2.level, "Ciphertexts must be at same level");
-    let q = params.modulus_at_level(ct1.level);
-
-    let c0: Vec<i64> = ct1
-        .c0
-        .iter()
-        .zip(&ct2.c0)
-        .map(|(a, b)| ((a + b) % q + q) % q)
-        .collect();
-
-    let c1: Vec<i64> = ct1
-        .c1
-        .iter()
-        .zip(&ct2.c1)
-        .map(|(a, b)| ((a + b) % q + q) % q)
-        .collect();
-
-    Ciphertext::new(c0, c1, ct1.level, ct1.scale)
-}
-
-/// Multiply polynomial by scalar polynomial (component-wise)
-///
-/// Used for plaintext multiplication in component extraction
-fn polynomial_multiply_scalar(poly: &[i64], scalar: &[i64], q: i64, n: usize) -> Vec<i64> {
-    assert_eq!(poly.len(), n);
-    assert_eq!(scalar.len(), n);
-
-    // For simplicity, we'll do component-wise multiplication
-    // This works because selector has only one non-zero entry
-    // More efficient than full polynomial multiplication!
-
-    let result: Vec<i64> = poly
-        .iter()
-        .zip(scalar)
-        .map(|(p, s)| {
-            let prod = (p * s) % q;
-            ((prod % q) + q) % q
-        })
-        .collect();
-
-    result
+    use crate::clifford_fhe::ckks::add;
+    add(ct1, ct2, params)
 }
 
 /// Multiply ciphertext by plaintext scalar
@@ -138,70 +111,40 @@ pub fn negate(ct: &Ciphertext, params: &CliffordFHEParams) -> Ciphertext {
     multiply_by_scalar(ct, -1, params)
 }
 
-/// Shift polynomial coefficients (for SIMD slot rotation)
-///
-/// This is useful for more advanced packing schemes
-pub fn shift_polynomial(poly: &[i64], shift: usize, q: i64) -> Vec<i64> {
-    let n = poly.len();
-    let mut result = vec![0i64; n];
-
-    for i in 0..n {
-        let new_idx = (i + shift) % n;
-        result[new_idx] = poly[i];
-    }
-
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_polynomial_multiply_scalar() {
-        let n = 16;
-        let q = 100;
-
-        let poly = vec![1, 2, 3, 4, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-        let mut scalar = vec![0i64; n];
-        scalar[2] = 10; // Select coefficient 2
-
-        let result = polynomial_multiply_scalar(&poly, &scalar, q, n);
-
-        // Only coefficient 2 should be non-zero
-        assert_eq!(result[2], 30); // 3 * 10 = 30
-        assert_eq!(result[0], 0);
-        assert_eq!(result[1], 0);
-        assert_eq!(result[3], 0);
-    }
-
-    #[test]
-    fn test_shift_polynomial() {
-        let poly = vec![1, 2, 3, 4, 0, 0, 0, 0];
-        let q = 100;
-
-        let shifted = shift_polynomial(&poly, 2, q);
-
-        assert_eq!(shifted[2], 1);
-        assert_eq!(shifted[3], 2);
-        assert_eq!(shifted[4], 3);
-        assert_eq!(shifted[5], 4);
-    }
+    use crate::clifford_fhe::encoding::{decode_multivector, encode_multivector};
+    use crate::clifford_fhe::keys::keygen_with_rotation;
+    use crate::clifford_fhe::ckks::{encrypt, decrypt};
 
     #[test]
     fn test_multiply_by_scalar() {
         let params = CliffordFHEParams::new_128bit();
-        let q = params.modulus_at_level(0);
+        let (pk, sk, _evk, _rotk) = keygen_with_rotation(&params);
 
-        let c0 = vec![1, 2, 3, 4, 0, 0, 0, 0];
-        let c1 = vec![5, 6, 7, 8, 0, 0, 0, 0];
+        // Create multivector [1, 2, 3, 4, 5, 6, 7, 8]
+        let mv = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
+        let pt_coeffs = encode_multivector(&mv, params.scale, params.n);
+        let pt = Plaintext::new(pt_coeffs, params.scale);
+        let ct = encrypt(&pk, &pt, &params);
 
-        let ct = Ciphertext::new(c0, c1, 0, params.scale);
-
+        // Multiply by -1
         let ct_neg = multiply_by_scalar(&ct, -1, &params);
 
-        // Check negation worked
-        assert_eq!(ct_neg.c0[0], ((q - 1) % q + q) % q);
-        assert_eq!(ct_neg.c0[1], ((q - 2) % q + q) % q);
+        // Decrypt and check
+        let pt_neg = decrypt(&sk, &ct_neg, &params);
+        let mv_neg = decode_multivector(&pt_neg.coeffs, params.scale);
+
+        // Check negation worked (within error tolerance)
+        for i in 0..8 {
+            let error = (mv_neg[i] + mv[i]).abs();
+            assert!(
+                error < 0.1,
+                "Negation error too large at component {}: {} (expected ~0)",
+                i,
+                error
+            );
+        }
     }
 }

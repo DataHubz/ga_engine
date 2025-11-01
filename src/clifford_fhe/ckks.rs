@@ -3,7 +3,7 @@
 //! Implements the core CKKS operations: encryption, decryption,
 //! homomorphic addition, and homomorphic multiplication.
 
-use crate::clifford_fhe::keys::{EvaluationKey, PublicKey, SecretKey};
+use crate::clifford_fhe::keys::{EvaluationKey, PublicKey, RotationKey, SecretKey};
 use crate::clifford_fhe::params::CliffordFHEParams;
 
 /// CKKS plaintext (polynomial representation)
@@ -297,6 +297,79 @@ pub fn multiply(
     }
 
     Ciphertext::new(new_c0, new_c1, new_level, new_scale)
+}
+
+/// Rotate ciphertext coefficients by r positions
+///
+/// This operation allows "moving" coefficients to different positions,
+/// which is essential for geometric product implementation.
+///
+/// Uses rotation keys generated during key generation.
+///
+/// # Example
+/// If ct encrypts [a0, a1, a2, a3, ...], then rotate(ct, 2) encrypts [a2, a3, ..., a0, a1]
+/// (with appropriate sign changes due to negacyclic reduction)
+pub fn rotate(
+    ct: &Ciphertext,
+    rotation_amount: usize,
+    rotk: &RotationKey,
+    params: &CliffordFHEParams,
+) -> Ciphertext {
+    let n = ct.n;
+    let q = params.modulus_at_level(ct.level);
+
+    // Find the rotation key for this amount
+    let rot_key = rotk
+        .keys
+        .iter()
+        .find(|(r, _, _)| *r == rotation_amount)
+        .expect("Rotation key not found for this amount");
+
+    let (_, rot_key_0, rot_key_1) = rot_key;
+
+    // Apply automorphism to ciphertext components
+    // For rotation by r, we compute:
+    // - c0_rot = c0(x^r)
+    // - c1_rot = c1(x^r)
+    // Then use rotation key to fix up the encryption
+    let c0_rotated = apply_automorphism(&ct.c0, rotation_amount, n);
+    let c1_rotated = apply_automorphism(&ct.c1, rotation_amount, n);
+
+    // Apply rotation key to correct the encryption
+    // new_c0 = c0_rotated + c1_rotated * rot_key_0
+    let c1_times_rk0 = polynomial_multiply_ntt(&c1_rotated, rot_key_0, q, n);
+    let new_c0: Vec<i64> = c0_rotated
+        .iter()
+        .zip(&c1_times_rk0)
+        .map(|(a, b)| {
+            let val = a + b;
+            ((val % q) + q) % q
+        })
+        .collect();
+
+    // new_c1 = c1_rotated * rot_key_1
+    let new_c1 = polynomial_multiply_ntt(&c1_rotated, rot_key_1, q, n);
+
+    Ciphertext::new(new_c0, new_c1, ct.level, ct.scale)
+}
+
+/// Apply automorphism x → x^r to polynomial
+///
+/// This is the core operation for rotation in CKKS
+fn apply_automorphism(poly: &[i64], r: usize, n: usize) -> Vec<i64> {
+    let mut result = vec![0i64; n];
+
+    for i in 0..n {
+        let new_idx = (i * r) % (2 * n);
+        if new_idx < n {
+            result[new_idx] = poly[i];
+        } else {
+            // Negacyclic reduction: x^n = -1
+            result[new_idx % n] = -poly[i];
+        }
+    }
+
+    result
 }
 
 /// Relinearize degree-2 ciphertext to degree-1

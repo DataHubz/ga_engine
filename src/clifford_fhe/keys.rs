@@ -110,6 +110,45 @@ pub fn keygen(params: &CliffordFHEParams) -> (PublicKey, SecretKey, EvaluationKe
     (pk, sk, evk)
 }
 
+/// Generate all keys including rotation keys for Clifford-FHE
+///
+/// Returns: (public_key, secret_key, evaluation_key, rotation_key)
+///
+/// # Example
+/// ```rust,ignore
+/// let params = CliffordFHEParams::new_128bit();
+/// let (pk, sk, evk, rotk) = keygen_with_rotation(&params);
+/// ```
+pub fn keygen_with_rotation(
+    params: &CliffordFHEParams,
+) -> (PublicKey, SecretKey, EvaluationKey, RotationKey) {
+    // Generate secret key
+    let sk = SecretKey::generate(params);
+
+    // Generate public key
+    let pk = generate_public_key(&sk, params);
+
+    // Generate evaluation key (for relinearization)
+    let evk = generate_evaluation_key(&sk, params);
+
+    // Generate rotation keys
+    // For geometric product on Cl(3,0) with 8 components (positions 0-7):
+    // - Products of component i and j land at position (i+j) mod N
+    // - We need to rotate from position (i+j) to target position k
+    // - Rotation amount = (k - (i+j) + N) % N
+    // - Since i,j,k ∈ [0,7], we have (i+j) ∈ [0,14] and need rotations to move to [0,7]
+    // - Maximum rotation: from 14 to 0 = N-14 or from 0 to 7 = 7
+    // Actually, let's generate all rotations from 0 to N-1 for maximum flexibility
+    // This is a one-time cost during key generation
+    let mut rotation_amounts = Vec::new();
+    for i in 0..params.n {
+        rotation_amounts.push(i);
+    }
+    let rotk = generate_rotation_keys(&sk, &rotation_amounts, params);
+
+    (pk, sk, evk, rotk)
+}
+
 /// Generate public key from secret key
 fn generate_public_key(sk: &SecretKey, params: &CliffordFHEParams) -> PublicKey {
     use rand::Rng;
@@ -180,6 +219,81 @@ fn generate_evaluation_key(sk: &SecretKey, params: &CliffordFHEParams) -> Evalua
     }
 
     EvaluationKey { relin_keys, n }
+}
+
+/// Generate rotation keys for SIMD slot rotations
+///
+/// For each rotation amount r, generates a key that allows rotating
+/// ciphertext slots by r positions.
+///
+/// # Arguments
+/// * `sk` - Secret key
+/// * `rotation_amounts` - List of rotation amounts to generate keys for
+/// * `params` - FHE parameters
+///
+/// # Returns
+/// Rotation key containing keys for all requested rotations
+fn generate_rotation_keys(
+    sk: &SecretKey,
+    rotation_amounts: &[usize],
+    params: &CliffordFHEParams,
+) -> RotationKey {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+
+    let n = params.n;
+    let q = params.modulus_at_level(0);
+
+    let mut keys = Vec::new();
+
+    for &r in rotation_amounts {
+        // Compute s(x^(5^r)) - the secret key with automorphism applied
+        // In CKKS, rotation by r slots corresponds to automorphism x → x^(5^r)
+        // For simplicity, we'll use x → x^r for coefficient rotations
+        let s_rotated = rotate_polynomial(&sk.coeffs, r, n);
+
+        // Sample random polynomial
+        let a: Vec<i64> = (0..n).map(|_| rng.gen_range(0..q)).collect();
+
+        // Sample error
+        let e: Vec<i64> = sample_error(n, params.error_std);
+
+        // Compute rot_key = -a*s + e + s(x^r) (mod q)
+        let a_times_s = polynomial_multiply_ntt(&a, &sk.coeffs, q, n);
+
+        let rot_key_0: Vec<i64> = a_times_s
+            .iter()
+            .zip(&e)
+            .zip(&s_rotated)
+            .map(|((as_i, e_i), sr_i)| {
+                let val = -as_i + e_i + sr_i;
+                ((val % q) + q) % q
+            })
+            .collect();
+
+        keys.push((r, rot_key_0, a));
+    }
+
+    RotationKey { keys, n }
+}
+
+/// Rotate polynomial coefficients by r positions
+///
+/// This implements the automorphism x → x^r in the polynomial ring
+fn rotate_polynomial(poly: &[i64], r: usize, n: usize) -> Vec<i64> {
+    let mut result = vec![0i64; n];
+
+    for i in 0..n {
+        let new_idx = (i * r) % (2 * n);
+        if new_idx < n {
+            result[new_idx] = poly[i];
+        } else {
+            // Negacyclic reduction: x^n = -1
+            result[new_idx % n] = -poly[i];
+        }
+    }
+
+    result
 }
 
 /// Sample error polynomial from discrete Gaussian distribution

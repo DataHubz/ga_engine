@@ -28,9 +28,9 @@
 //!
 //! We compute this HOMOMORPHICALLY using CKKS multiplication!
 
-use crate::clifford_fhe::ckks::{add, multiply, Ciphertext};
-use crate::clifford_fhe::keys::EvaluationKey;
-use crate::clifford_fhe::operations::{extract_component, multiply_by_scalar, pack_components};
+use crate::clifford_fhe::ckks::Ciphertext;
+use crate::clifford_fhe::keys::{EvaluationKey, RotationKey};
+use crate::clifford_fhe::operations::{add_ciphertexts, compute_component_product, multiply_by_scalar};
 use crate::clifford_fhe::params::CliffordFHEParams;
 
 /// Cl(3,0) basis elements
@@ -212,6 +212,8 @@ impl StructureConstants {
 /// Enc(c[i]) = Σ coeff[j,k] * Enc(a[j]) * Enc(b[k])
 /// ```
 ///
+/// Uses rotation keys to move products to correct positions!
+///
 /// # Example
 ///
 /// ```rust,ignore
@@ -219,7 +221,7 @@ impl StructureConstants {
 /// let ct_b = encrypt(&pk, &mv_b, &params);
 ///
 /// // Homomorphic geometric product!
-/// let ct_c = geometric_product_homomorphic(&ct_a, &ct_b, &evk, &params);
+/// let ct_c = geometric_product_homomorphic(&ct_a, &ct_b, &evk, &rotk, &params);
 ///
 /// let mv_c = decrypt(&sk, &ct_c, &params);
 /// // mv_c should equal mv_a ⊗ mv_b !
@@ -228,12 +230,14 @@ pub fn geometric_product_homomorphic(
     ct_a: &Ciphertext,
     ct_b: &Ciphertext,
     evk: &EvaluationKey,
+    rotk: &RotationKey,
     params: &CliffordFHEParams,
 ) -> Ciphertext {
     let structure = StructureConstants::new_cl30();
 
-    // Array to collect result components
-    let mut result_components: [Option<Ciphertext>; 8] = Default::default();
+    // Array to collect result for each component position
+    // We'll build up the full result by computing each component's contributions
+    let mut result: Option<Ciphertext> = None;
 
     // For each output component (0-7)
     for target in 0..8 {
@@ -241,38 +245,27 @@ pub fn geometric_product_homomorphic(
 
         // Accumulate all products contributing to this component
         for &(coeff, _target, src_a, src_b) in products {
-            // Step 1: Extract components from encrypted multivectors
-            let ct_a_component = extract_component(ct_a, src_a, params);
-            let ct_b_component = extract_component(ct_b, src_b, params);
+            // Compute ct_a[src_a] * ct_b[src_b] and place result at position target
+            let product_ct = compute_component_product(
+                ct_a, src_a, ct_b, src_b, target, evk, rotk, params,
+            );
 
-            // Step 2: Multiply the two components homomorphically
-            let product_ct = multiply(&ct_a_component, &ct_b_component, evk, params);
+            // Apply coefficient (+1 or -1)
+            let scaled = if coeff == 1 {
+                product_ct
+            } else {
+                multiply_by_scalar(&product_ct, coeff as i64, params)
+            };
 
-            // Step 3: Apply coefficient (+1 or -1)
-            let scaled = multiply_by_scalar(&product_ct, coeff as i64, params);
-
-            // Step 4: Add to accumulator for this target component
-            result_components[target] = Some(match &result_components[target] {
+            // Add to global result
+            result = Some(match result {
                 None => scaled,
-                Some(acc) => add(acc, &scaled, params),
+                Some(acc) => add_ciphertexts(&acc, &scaled, params),
             });
         }
     }
 
-    // Convert Option array to regular array
-    let components: [Ciphertext; 8] = [
-        result_components[0].clone().expect("Component 0 missing"),
-        result_components[1].clone().expect("Component 1 missing"),
-        result_components[2].clone().expect("Component 2 missing"),
-        result_components[3].clone().expect("Component 3 missing"),
-        result_components[4].clone().expect("Component 4 missing"),
-        result_components[5].clone().expect("Component 5 missing"),
-        result_components[6].clone().expect("Component 6 missing"),
-        result_components[7].clone().expect("Component 7 missing"),
-    ];
-
-    // Pack all 8 components back into single ciphertext
-    pack_components(&components, params)
+    result.expect("Geometric product produced empty result")
 }
 
 /// Negate a ciphertext (multiply by -1)
