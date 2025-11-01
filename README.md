@@ -280,7 +280,8 @@ cargo run --release --example clifford_lwe_256_final
 
 **Hardware**:
 - Minimum: 64-bit CPU, 4 GB RAM, 500 MB disk
-- Recommended: ARM64 (Apple M1/M2/M3) or x86_64 with AVX2
+- Recommended: ARM64 (Apple Silicon) or x86_64 with AVX2
+- Benchmarks run on: Apple M3 Max, 36 GB RAM, macOS 14.8
 
 **Performance Variation**: Relative speedups ±15% across architectures
 

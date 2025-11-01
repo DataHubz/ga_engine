@@ -1,5 +1,7 @@
 # Clifford Algebra Acceleration: Final Results
 
+**Hardware**: Apple M3 Max, 36 GB RAM, macOS 14.8
+
 ## Executive Summary
 
 This project successfully demonstrates **real-world applications** of Clifford (Geometric) Algebras in two domains:
