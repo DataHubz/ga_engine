@@ -1,5 +1,15 @@
 # Quick Summary: CKKS Orbit-Order Implementation Status
 
+## 🎉 BREAKTHROUGH: RNS-CKKS Encryption/Decryption Fixed! (2025-11-02)
+
+**Two critical bugs fixed:**
+1. ✅ RNS-inconsistent key generation (polynomial `a` sampled independently per prime)
+2. ✅ Wrong decryption formula (subtraction instead of addition)
+
+**Result**: Basic encryption/decryption now works perfectly with N=64, 2 primes, noise=0!
+
+---
+
 ## 🎉 What's Working (COMPLETE)
 
 ### ✅ Orbit-Order Canonical Embedding

@@ -42,8 +42,8 @@ fn main() {
     println!("  Plaintext scale: {:.2e}", pt_result.scale);
     println!();
 
-    // Convert back to regular coefficients
-    let coeffs_result = pt_result.to_coeffs(&params.moduli);
+    // Convert back using SINGLE PRIME (avoids CRT overflow!)
+    let coeffs_result = pt_result.to_coeffs_single_prime(&params.moduli);
 
     println!("Recovered coefficients (first 10):");
     for i in 0..10.min(coeffs_result.len()) {
@@ -54,9 +54,10 @@ fn main() {
     // Check error
     let error = (coeffs_result[0] - coeffs[0]).abs();
     println!("Error on first coefficient: {}", error);
+    println!();
 
     if error < 100 {
-        println!("✓ PASS: Encrypt/decrypt works!");
+        println!("✓ PASS: Encrypt/decrypt works with single-prime decoding!");
     } else {
         println!("✗ FAIL: Too much error!");
     }

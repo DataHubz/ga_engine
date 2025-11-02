@@ -53,6 +53,7 @@ pub mod ckks_rns; // RNS-CKKS (new implementation)
 pub mod encoding;
 pub mod geometric_product;
 pub mod keys;
+pub mod keys_rns; // RNS-aware key generation
 pub mod operations;
 pub mod params;
 pub mod rns; // RNS (Residue Number System) core
