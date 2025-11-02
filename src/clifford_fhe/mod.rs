@@ -58,6 +58,7 @@ pub mod keys_rns; // RNS-aware key generation
 pub mod operations;
 pub mod params;
 pub mod rns; // RNS (Residue Number System) core
+pub mod rotation_keys; // Specialized rotation keys for fast R·x·R̃
 pub mod simple_rotation;
 pub mod slot_encoding;
 pub mod slot_operations;
