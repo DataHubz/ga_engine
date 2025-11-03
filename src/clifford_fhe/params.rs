@@ -76,40 +76,9 @@ impl CliffordFHEParams {
         }
     }
 
-    /// Test parameters for RNS-CKKS multiplication (RECOMMENDED)
+    /// Test parameters for RNS-CKKS multiplication (DEPTH-1)
     ///
-    /// N=1024 for testing, 3-prime modulus chain for depth-2 circuits.
-    ///
-    /// RNS-CKKS Parameters (STANDARD CKKS CONFIGURATION):
-    /// - Q = q₀ · q₁ · q₂ where each qᵢ ≈ 2^60
-    /// - Total modulus: Q ≈ 2^180
-    /// - Scale: Δ ≈ 2^40 (standard CKKS scale)
-    /// - After 1st multiply: rescale to Q' = q₀ · q₁ ≈ 2^120
-    /// - After 2nd multiply: rescale to Q'' = q₀ ≈ 2^60
-    ///
-    /// This allows:
-    /// - 2 homomorphic multiplications (depth-2 circuits)
-    /// - Proper rescaling (drop one prime per multiply)
-    /// - scale² = 2^80 < q = 2^60... WAIT, that's wrong!
-    /// - Actually: Δ² = 2^80 and q ≈ 2^60, so Δ² > q!
-    ///
-    /// CORRECTED: With 60-bit primes, we can use Δ ≈ 2^40
-    /// - Δ² = 2^80, but after multiplication we have signal Δ²·m modulo Q = q₀·q₁·q₂ ≈ 2^180
-    /// - After rescaling by q₂ ≈ 2^60: signal becomes (Δ²·m)/q₂ ≈ 2^80·m / 2^60 = 2^20·m
-    /// - Wait, that doesn't match the expected scale formula either!
-    ///
-    /// Let me reconsider: In RNS-CKKS, after multiply we have scale Δ².
-    /// The values are stored mod Q where Q = product of all active primes.
-    /// As long as Δ²·m < Q, we're fine. With Q ≈ 2^180 and Δ² ≈ 2^80,
-    /// we have plenty of room even with m ≈ 10 and noise.
-    ///
-    /// After rescaling by q_last ≈ 2^60, the new scale is Δ²/q ≈ 2^80/2^60 = 2^20.
-    /// Hmm, that's smaller than the original Δ = 2^40!
-    ///
-    /// Actually, I think the standard approach is:
-    /// - Use Δ ≈ q (each prime)
-    /// - After multiply: scale = Δ² ≈ q²
-    /// - After rescale by q: new scale = Δ²/q = q
+    /// N=1024 for testing, 3-prime modulus chain for depth-1 circuits.
     ///
     /// CORRECTED APPROACH: Use scaling primes ≈ Δ
     ///
@@ -144,13 +113,92 @@ impl CliffordFHEParams {
             // 1. Fresh ciphertext: scale = Δ, modulus = q₀·q₁·q₂
             // 2. After multiply: scale = Δ², modulus = q₀·q₁·q₂
             // 3. Rescale (drop q₂): scale = Δ²/q₂ ≈ Δ, modulus = q₀·q₁
-            // 4. After 2nd multiply: scale = Δ², modulus = q₀·q₁
-            // 5. Rescale (drop q₁): scale = Δ²/q₁ ≈ Δ, modulus = q₀
+            //
+            // Supports depth-1 circuits (1 multiplication)
+            scale: 2f64.powi(40),
+            error_std: 3.2,
+            security: SecurityLevel::Bit128, // Based on lattice estimator
+        }
+    }
+
+    /// Test parameters for RNS-CKKS with depth-2 support (4 primes)
+    ///
+    /// N=1024 for testing, 4-prime modulus chain for depth-2 circuits.
+    ///
+    /// Enables operations that require 2 sequential multiplications:
+    /// - Wedge Product: (a⊗b - b⊗a) / 2
+    /// - Inner Product: (a⊗b + b⊗a) / 2
+    /// - Rotation: R ⊗ v ⊗ R̃
+    pub fn new_rns_mult_depth2() -> Self {
+        // 4 primes = depth-2 support (minimal)
+        //
+        // CRITICAL FIX (2025-11-02): Replaced composite "prime" with actual prime!
+        // - Old q₃ = 1099511693313 was COMPOSITE (3 × 366503897771)
+        let moduli = vec![
+            1141392289560813569,  // q₀ (60-bit, NTT-friendly) - for security
+            1099511678977,        // q₁ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
+            1099511683073,        // q₂ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
+            1099511795713,        // q₃ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME (FIXED!)
+        ];
+
+        Self {
+            n: 1024,
+            moduli,
+            // Workflow:
+            // 1. Fresh: scale = Δ, modulus = q₀·q₁·q₂·q₃
+            // 2. After 1st multiply: scale = Δ², rescale by q₃ → scale = Δ, modulus = q₀·q₁·q₂
+            // 3. After 2nd multiply: scale = Δ², rescale by q₂ → scale = Δ, modulus = q₀·q₁
             //
             // Supports depth-2 circuits (2 multiplications)
             scale: 2f64.powi(40),
             error_std: 3.2,
-            security: SecurityLevel::Bit128, // Based on lattice estimator
+            security: SecurityLevel::Bit128,
+        }
+    }
+
+    /// Test parameters for RNS-CKKS with depth-2 support (5 primes - better headroom)
+    ///
+    /// N=1024 for testing, 5-prime modulus chain for depth-2 circuits with extra headroom.
+    ///
+    /// More conservative than new_rns_mult_depth2() - leaves 3 primes after depth-2.
+    pub fn new_rns_mult_depth2_safe() -> Self {
+        // 5 primes = depth-2 support with extra headroom
+        //
+        // CRITICAL FIX (2025-11-02): Replaced composite "primes" with actual primes!
+        // - Old q₃ = 1099511693313 was COMPOSITE (3 × 366503897771)
+        // - Old q₄ = 1099511697409 was COMPOSITE
+        // - All values verified with Miller-Rabin and Fermat tests
+        let moduli = vec![
+            1141392289560813569,  // q₀ (60-bit, NTT-friendly) - for security
+            1099511678977,        // q₁ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
+            1099511683073,        // q₂ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
+            1099511795713,        // q₃ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME (FIXED!)
+            1099511799809,        // q₄ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME (FIXED!)
+        ];
+
+        let scale_value = 1099511627776_f64;  // 2^40 - power of 2 for clean encoding
+
+        Self {
+            n: 1024,
+            moduli,
+            // CRITICAL: Scale CANNOT equal any of the moduli primes!
+            //
+            // If scale = q₁, then encoding a plaintext gives:
+            //   [m]_scale = m * scale = m * q₁
+            // Taking this mod q₁ gives: (m * q₁) mod q₁ = 0
+            // This zero residue breaks RNS arithmetic!
+            //
+            // Solution: Use scale = 2^40 = 1099511627776
+            // This is slightly smaller than all scaling primes (~51k-74k difference)
+            // There will be minor scale drift, but it's acceptable.
+            //
+            // Workflow:
+            // 1. Fresh: scale = 2^40, modulus = q₀·q₁·q₂·q₃·q₄
+            // 2. After 1st mult: scale = 2^80, rescale by q₄ → scale ≈ 2^40
+            // 3. After 2nd mult: scale = 2^80, rescale by q₃ → scale ≈ 2^40
+            scale: scale_value,
+            error_std: 3.2,
+            security: SecurityLevel::Bit128,
         }
     }
 

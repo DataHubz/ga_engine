@@ -85,44 +85,61 @@ impl RnsPolynomial {
     /// Uses Chinese Remainder Theorem to reconstruct coefficients from residues.
     /// For two primes q₀, q₁: c = (c₀·Q₀·Q₀⁻¹ + c₁·Q₁·Q₁⁻¹) mod Q
     /// where Q = q₀·q₁, Q₀ = Q/q₀, Q₁ = Q/q₁
+    ///
+    /// Uses BigInt to handle Q > 2^127 (works with any number of primes)
     pub fn to_coeffs(&self, primes: &[i64]) -> Vec<i64> {
-        let num_primes = self.rns_coeffs[0].len();
-        let active_primes = &primes[..num_primes];
+        use num_bigint::BigInt;
+        use num_traits::{Zero, One};
 
-        // Compute Q = product of all active primes
-        let q_product: i128 = active_primes.iter().map(|&q| q as i128).product();
+        let num_primes = self.rns_coeffs[0].len();
+        let active_primes: Vec<BigInt> = primes[..num_primes].iter().map(|&q| BigInt::from(q)).collect();
+
+        // Compute Q = product of all active primes (using BigInt)
+        let q_product: BigInt = active_primes.iter().fold(BigInt::one(), |acc, q| acc * q);
 
         let mut coeffs = vec![0i64; self.n];
 
         for i in 0..self.n {
-            let mut c: i128 = 0;
+            let mut c = BigInt::zero();
 
-            for (j, &qj) in active_primes.iter().enumerate() {
+            for (j, qj) in active_primes.iter().enumerate() {
                 // Q_j = Q / q_j
-                let q_j = q_product / (qj as i128);
+                let q_j = &q_product / qj;
 
                 // Q_j^{-1} mod q_j (using extended Euclidean algorithm)
-                let q_j_inv = mod_inverse(q_j, qj as i128);
+                let q_j_inv = mod_inverse_bigint(&q_j, qj);
 
                 // Contribution: c_j * Q_j * Q_j^{-1}
-                // Note: Need to avoid overflow in (a * b) % m when a, b are large
-                let c_j = self.rns_coeffs[i][j] as i128;
+                let c_j = BigInt::from(self.rns_coeffs[i][j]);
 
-                // First: (c_j * Q_j) % q_product
-                let temp1 = mulmod_i128(c_j, q_j, q_product);
+                // Compute (c_j * Q_j * Q_j^{-1}) % Q
+                let contrib = (c_j * &q_j * q_j_inv) % &q_product;
 
-                // Second: (temp1 * Q_j^{-1}) % q_product
-                let contrib = mulmod_i128(temp1, q_j_inv, q_product);
-
-                c = (c + contrib) % q_product;
+                c = (c + contrib) % &q_product;
             }
 
             // Center around 0: map from [0, Q) to (-Q/2, Q/2]
-            if c > q_product / 2 {
-                c -= q_product;
+            let q_half = &q_product / 2;
+            if c > q_half {
+                c -= &q_product;
             }
 
-            coeffs[i] = c as i64;
+            // Convert BigInt to i64
+            // This should be safe since the centered value fits in i64 for practical parameters
+            let bytes = c.to_signed_bytes_le();
+            let mut result = 0i64;
+            for (idx, &byte) in bytes.iter().take(8).enumerate() {
+                result |= (byte as i64) << (idx * 8);
+            }
+            // Handle sign extension if negative
+            if bytes.len() > 0 && bytes[bytes.len() - 1] & 0x80 != 0 {
+                // Negative number - sign extend
+                for idx in bytes.len()..8 {
+                    result |= 0xFF << (idx * 8);
+                }
+            }
+
+            coeffs[i] = result;
         }
 
         coeffs

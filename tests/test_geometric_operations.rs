@@ -106,7 +106,7 @@ fn test_homomorphic_reverse() {
 fn test_homomorphic_geometric_product() {
     println!("\n=== Testing Homomorphic Geometric Product ===");
 
-    let params = CliffordFHEParams::new_rns_mult();
+    let params = CliffordFHEParams::new_rns_mult();  // Revert to 3 primes
     let (pk, sk, evk) = rns_keygen(&params);
 
     // Test: e₁ ⊗ e₂ = e₁₂ (simpler test - only product of basis vectors)
@@ -138,11 +138,10 @@ fn test_homomorphic_geometric_product() {
 }
 
 #[test]
-#[ignore] // Requires depth-2 (4+ primes in chain). Current params only support depth-1.
 fn test_homomorphic_wedge_product() {
     println!("\n=== Testing Homomorphic Wedge Product ===");
 
-    let params = CliffordFHEParams::new_rns_mult();
+    let params = CliffordFHEParams::new_rns_mult_depth2_safe();  // Use depth-2 params (5 primes for better headroom)
     let (pk, sk, evk) = rns_keygen(&params);
 
     // Test: e₁ ∧ e₂ = e₁₂ (wedge product of orthogonal vectors)

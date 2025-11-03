@@ -204,18 +204,14 @@ fn generate_rns_evaluation_key(
     let w: u32 = 20;  // Digit width (B = 2^20)
 
     // Number of digits must cover Q = product of all primes
-    // Calculate actual bit length by summing individual prime bit lengths
-    let q_bits: u32 = primes.iter()
-        .map(|&q| {
-            let mut bits = 0u32;
-            let mut val = q;
-            while val > 0 {
-                bits += 1;
-                val >>= 1;
-            }
-            bits
-        })
-        .sum();
+    // CRITICAL: Use the SAME calculation as decompose_base_pow2!
+    // We use Q.bits() not sum of individual prime bits, because:
+    //   sum(bits) overestimates (e.g., 224 for 5 primes)
+    //   Q.bits() is exact (e.g., 220 for 5 primes)
+    // This ensures EVK has exactly the right number of entries.
+    use num_bigint::BigInt;
+    let q_prod: BigInt = primes.iter().map(|&p| BigInt::from(p)).product();
+    let q_bits: u32 = q_prod.bits() as u32;
     let d: usize = ((q_bits + w - 1) / w) as usize;
 
     eprintln!("[EVK GEN] num_primes={}, total_bits={}, w={}, num_digits={}",

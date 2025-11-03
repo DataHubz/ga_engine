@@ -68,11 +68,12 @@ fn test_single_prime_encryption_decryption() {
 
 #[test]
 fn test_two_prime_encryption_decryption() {
+    // Use validated primes (old q1 = 1141173990025715713 was COMPOSITE!)
     let params = CliffordFHEParams {
         n: 1024,
         moduli: vec![
-            1141392289560813569,
-            1141173990025715713,
+            1141392289560813569,  // q0 - 60-bit prime ✅
+            1099511678977,        // q1 - 41-bit prime ✅
         ],
         scale: 2f64.powi(40),
         error_std: 3.2,
@@ -97,11 +98,12 @@ fn test_two_prime_encryption_decryption() {
 
 #[test]
 fn test_homomorphic_addition() {
+    // Use validated primes (old q1 = 1141173990025715713 was COMPOSITE!)
     let params = CliffordFHEParams {
         n: 1024,
         moduli: vec![
-            1141392289560813569,
-            1141173990025715713,
+            1141392289560813569,  // q0 - 60-bit prime ✅
+            1099511678977,        // q1 - 41-bit prime ✅
         ],
         scale: 2f64.powi(40),
         error_std: 3.2,
@@ -170,11 +172,12 @@ fn test_homomorphic_multiplication() {
 
 #[test]
 fn test_noise_growth() {
+    // Use validated primes (old q1 = 1141173990025715713 was COMPOSITE!)
     let params = CliffordFHEParams {
         n: 1024,
         moduli: vec![
-            1141392289560813569,
-            1141173990025715713,
+            1141392289560813569,  // q0 - 60-bit prime ✅
+            1099511678977,        // q1 - 41-bit prime ✅
         ],
         scale: 2f64.powi(40),
         error_std: 3.2,

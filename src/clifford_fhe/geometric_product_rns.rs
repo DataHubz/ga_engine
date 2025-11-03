@@ -379,7 +379,7 @@ pub fn geometric_product_2d_componentwise(
             );
 
             // Get active primes for THIS product (after multiplication/rescaling)
-            let product_active_primes = &params.moduli[..product.level + 1];
+            let product_active_primes = &params.moduli[..product.c0.num_primes()];
 
             // Apply coefficient (for now, only handle ±1)
             let term = if coeff == -1 {
@@ -405,7 +405,7 @@ pub fn geometric_product_2d_componentwise(
                 None => term,
                 Some(acc) => {
                     // Get active primes for accumulation (should match term's level)
-                    let acc_active_primes = &params.moduli[..acc.level + 1];
+                    let acc_active_primes = &params.moduli[..acc.c0.num_primes()];
                     let sum_c0 = rns_add(&acc.c0, &term.c0, acc_active_primes);
                     let sum_c1 = rns_add(&acc.c1, &term.c1, acc_active_primes);
                     RnsCiphertext::new(sum_c0, sum_c1, acc.level, acc.scale)
@@ -454,7 +454,7 @@ pub fn geometric_product_3d_componentwise(
             );
 
             // Get active primes for THIS product (after multiplication/rescaling)
-            let product_active_primes = &params.moduli[..product.level + 1];
+            let product_active_primes = &params.moduli[..product.c0.num_primes()];
 
             // Apply coefficient (±1)
             let term = if coeff == -1 {
@@ -479,7 +479,7 @@ pub fn geometric_product_3d_componentwise(
                 None => term,
                 Some(acc) => {
                     // Get active primes for accumulation (should match term's level)
-                    let acc_active_primes = &params.moduli[..acc.level + 1];
+                    let acc_active_primes = &params.moduli[..acc.c0.num_primes()];
                     let sum_c0 = rns_add(&acc.c0, &term.c0, acc_active_primes);
                     let sum_c1 = rns_add(&acc.c1, &term.c1, acc_active_primes);
                     RnsCiphertext::new(sum_c0, sum_c1, acc.level, acc.scale)
@@ -598,7 +598,6 @@ pub fn wedge_product_2d(
     evk: &RnsEvaluationKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 4] {
-    let primes = &params.moduli;
     let n = params.n;
 
     // Compute a⊗b
@@ -607,12 +606,15 @@ pub fn wedge_product_2d(
     // Compute b⊗a
     let ba = geometric_product_2d_componentwise(cts_b, cts_a, evk, params);
 
+    // Get active primes based on actual number of primes in result
+    let result_primes = &params.moduli[..ab[0].c0.num_primes()];
+
     // Compute (a⊗b - b⊗a) / 2
     let mut result = [
-        subtract_ciphertexts(&ab[0], &ba[0], primes, n),
-        subtract_ciphertexts(&ab[1], &ba[1], primes, n),
-        subtract_ciphertexts(&ab[2], &ba[2], primes, n),
-        subtract_ciphertexts(&ab[3], &ba[3], primes, n),
+        subtract_ciphertexts(&ab[0], &ba[0], result_primes, n),
+        subtract_ciphertexts(&ab[1], &ba[1], result_primes, n),
+        subtract_ciphertexts(&ab[2], &ba[2], result_primes, n),
+        subtract_ciphertexts(&ab[3], &ba[3], result_primes, n),
     ];
 
     // Divide by 2 (multiply by 1/2)
@@ -668,7 +670,6 @@ pub fn inner_product_2d(
     evk: &RnsEvaluationKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 4] {
-    let primes = &params.moduli;
     let n = params.n;
 
     // Compute a⊗b
@@ -677,12 +678,15 @@ pub fn inner_product_2d(
     // Compute b⊗a
     let ba = geometric_product_2d_componentwise(cts_b, cts_a, evk, params);
 
+    // Get active primes based on actual number of primes in result
+    let result_primes = &params.moduli[..ab[0].c0.num_primes()];
+
     // Compute (a⊗b + b⊗a) / 2
     let mut result = [
-        add_ciphertexts(&ab[0], &ba[0], primes, n),
-        add_ciphertexts(&ab[1], &ba[1], primes, n),
-        add_ciphertexts(&ab[2], &ba[2], primes, n),
-        add_ciphertexts(&ab[3], &ba[3], primes, n),
+        add_ciphertexts(&ab[0], &ba[0], result_primes, n),
+        add_ciphertexts(&ab[1], &ba[1], result_primes, n),
+        add_ciphertexts(&ab[2], &ba[2], result_primes, n),
+        add_ciphertexts(&ab[3], &ba[3], result_primes, n),
     ];
 
     // Divide by 2 (multiply by 1/2)
@@ -751,7 +755,6 @@ pub fn wedge_product_3d(
     evk: &RnsEvaluationKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 8] {
-    let primes = &params.moduli;
     let n = params.n;
 
     // Compute a⊗b
@@ -760,16 +763,19 @@ pub fn wedge_product_3d(
     // Compute b⊗a
     let ba = geometric_product_3d_componentwise(cts_b, cts_a, evk, params);
 
+    // Get active primes based on actual number of primes in result
+    let result_primes = &params.moduli[..ab[0].c0.num_primes()];
+
     // Compute (a⊗b - b⊗a) / 2
     let mut result = [
-        subtract_ciphertexts(&ab[0], &ba[0], primes, n),
-        subtract_ciphertexts(&ab[1], &ba[1], primes, n),
-        subtract_ciphertexts(&ab[2], &ba[2], primes, n),
-        subtract_ciphertexts(&ab[3], &ba[3], primes, n),
-        subtract_ciphertexts(&ab[4], &ba[4], primes, n),
-        subtract_ciphertexts(&ab[5], &ba[5], primes, n),
-        subtract_ciphertexts(&ab[6], &ba[6], primes, n),
-        subtract_ciphertexts(&ab[7], &ba[7], primes, n),
+        subtract_ciphertexts(&ab[0], &ba[0], result_primes, n),
+        subtract_ciphertexts(&ab[1], &ba[1], result_primes, n),
+        subtract_ciphertexts(&ab[2], &ba[2], result_primes, n),
+        subtract_ciphertexts(&ab[3], &ba[3], result_primes, n),
+        subtract_ciphertexts(&ab[4], &ba[4], result_primes, n),
+        subtract_ciphertexts(&ab[5], &ba[5], result_primes, n),
+        subtract_ciphertexts(&ab[6], &ba[6], result_primes, n),
+        subtract_ciphertexts(&ab[7], &ba[7], result_primes, n),
     ];
 
     // Divide by 2
@@ -789,7 +795,6 @@ pub fn inner_product_3d(
     evk: &RnsEvaluationKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 8] {
-    let primes = &params.moduli;
     let n = params.n;
 
     // Compute a⊗b
@@ -798,16 +803,19 @@ pub fn inner_product_3d(
     // Compute b⊗a
     let ba = geometric_product_3d_componentwise(cts_b, cts_a, evk, params);
 
+    // Get active primes based on actual number of primes in result
+    let result_primes = &params.moduli[..ab[0].c0.num_primes()];
+
     // Compute (a⊗b + b⊗a) / 2
     let mut result = [
-        add_ciphertexts(&ab[0], &ba[0], primes, n),
-        add_ciphertexts(&ab[1], &ba[1], primes, n),
-        add_ciphertexts(&ab[2], &ba[2], primes, n),
-        add_ciphertexts(&ab[3], &ba[3], primes, n),
-        add_ciphertexts(&ab[4], &ba[4], primes, n),
-        add_ciphertexts(&ab[5], &ba[5], primes, n),
-        add_ciphertexts(&ab[6], &ba[6], primes, n),
-        add_ciphertexts(&ab[7], &ba[7], primes, n),
+        add_ciphertexts(&ab[0], &ba[0], result_primes, n),
+        add_ciphertexts(&ab[1], &ba[1], result_primes, n),
+        add_ciphertexts(&ab[2], &ba[2], result_primes, n),
+        add_ciphertexts(&ab[3], &ba[3], result_primes, n),
+        add_ciphertexts(&ab[4], &ba[4], result_primes, n),
+        add_ciphertexts(&ab[5], &ba[5], result_primes, n),
+        add_ciphertexts(&ab[6], &ba[6], result_primes, n),
+        add_ciphertexts(&ab[7], &ba[7], result_primes, n),
     ];
 
     // Divide by 2

@@ -46,19 +46,60 @@ fn mod_pow_u64(mut base: u64, mut exp: u64, q: u64) -> u64 {
 
 /// Find a primitive root of Z_q^* (q prime). Brute force is fine for a few primes.
 fn primitive_root(q: u64) -> u64 {
-    // factor q-1 (we only need factor 2 and the odd part)
     let phi = q - 1;
-    let mut odd = phi;
-    while odd % 2 == 0 { odd /= 2; }
 
+    // Get prime factors of phi
+    let prime_factors = prime_factors_of(phi);
+
+    // Test each candidate g
     for g in 2..q {
-        // g^{phi/2} != 1, g^{phi/odd} != 1 (quick sieve)
-        if mod_pow_u64(g, phi/2, q) == 1 { continue; }
-        if odd != 1 && mod_pow_u64(g, phi/odd, q) == 1 { continue; }
-        // Optional: check all prime factors of phi if you want a strict test
-        return g;
+        let mut is_primitive = true;
+
+        // g is a primitive root iff g^(phi/p) ≠ 1 for all prime factors p of phi
+        for &p in &prime_factors {
+            if mod_pow_u64(g, phi / p, q) == 1 {
+                is_primitive = false;
+                break;
+            }
+        }
+
+        if is_primitive {
+            return g;
+        }
     }
     unreachable!("no primitive root found (unexpected for prime q)");
+}
+
+/// Find prime factors of n (simple trial division, sufficient for our use case)
+fn prime_factors_of(mut n: u64) -> Vec<u64> {
+    let mut factors = Vec::new();
+
+    // Factor out 2
+    if n % 2 == 0 {
+        factors.push(2);
+        while n % 2 == 0 {
+            n /= 2;
+        }
+    }
+
+    // Factor out odd primes
+    let mut p = 3u64;
+    while p * p <= n {
+        if n % p == 0 {
+            factors.push(p);
+            while n % p == 0 {
+                n /= p;
+            }
+        }
+        p += 2;
+    }
+
+    // If n > 1, then it's a prime factor
+    if n > 1 {
+        factors.push(n);
+    }
+
+    factors
 }
 
 /// Compute psi, omega for twisted NTT:
@@ -163,6 +204,17 @@ fn negacyclic_intt(mut a: Vec<u64>, q: u64, psi: u64, omega: u64) -> Vec<u64> {
 // Polynomial multiplication using NTT
 // ============================================================================
 
+/// Normalize i64 to u64 in [0, q) - CRITICAL for correct NTT input
+///
+/// This ensures the value is strictly in [0, q) before passing to NTT.
+/// Missing this final modulo reduction causes NTT to fail for certain primes.
+#[inline]
+fn norm_i64_to_u64_mod_q(x: i64, q: i64) -> u64 {
+    let r = (x % q + q) % q;  // Guaranteed in [0, q)
+    debug_assert!(r >= 0 && r < q, "norm_i64_to_u64_mod_q failed: r={}, q={}", r, q);
+    r as u64
+}
+
 /// Negacyclic polynomial multiply c = a * b mod (x^n + 1, q) using twisted NTT.
 /// `a`, `b` are length-n with coefficients in [0, q).
 ///
@@ -172,20 +224,22 @@ pub fn polynomial_multiply_ntt(a: &[i64], b: &[i64], q_i64: i64, n: usize) -> Ve
     debug_assert!(n.is_power_of_two(), "N must be power of 2 for NTT");
     let q = q_i64 as u64;
 
-    // Convert to u64 residues in [0, q)
-    let mut au = vec![0u64; n];
-    let mut bu = vec![0u64; n];
-    for i in 0..n {
-        let x = a[i];
-        let y = b[i];
-        let xi = ((x % q_i64) + q_i64) % q_i64;
-        let yi = ((y % q_i64) + q_i64) % q_i64;
-        au[i] = xi as u64;
-        bu[i] = yi as u64;
-    }
+    // Convert to u64 residues in [0, q) - FIXED: proper normalization
+    let au: Vec<u64> = a.iter().copied().map(|x| norm_i64_to_u64_mod_q(x, q_i64)).collect();
+    let bu: Vec<u64> = b.iter().copied().map(|x| norm_i64_to_u64_mod_q(x, q_i64)).collect();
 
     // Twisted NTT params
     let (psi, omega) = negacyclic_roots(q, n);
+
+    // Sanity checks for NTT roots (from expert feedback)
+    debug_assert_eq!(mod_pow_u64(psi, 2 * n as u64, q), 1,
+        "psi must be 2N-th root of unity");
+    debug_assert_eq!(mod_pow_u64(psi, n as u64, q), q - 1,
+        "psi^N must equal -1 (mod q)");
+    debug_assert_eq!(mod_pow_u64(omega, n as u64, q), 1,
+        "omega must be N-th root of unity");
+    debug_assert_ne!(mod_pow_u64(omega, n as u64 / 2, q), 1,
+        "omega must be primitive N-th root (not a (N/2)-th root)");
 
     // Forward NTT (negacyclic)
     let a_ntt = negacyclic_ntt(au, q, psi, omega);

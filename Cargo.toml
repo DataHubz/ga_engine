@@ -25,6 +25,7 @@ rand = "0.8"
 rand_distr = "0.4"  # For Gaussian distribution sampling (FHE)
 sha3 = "0.10"  # For SHAKE128/256 (deterministic RNG)
 num-bigint = "0.4"  # For arbitrary precision integers (RNS-CKKS with large Q)
+num-traits = "0.2"  # For Zero/One traits used with BigInt
 
 [dev-dependencies]
 criterion      = { version = "0.4", features = ["html_reports"] }
