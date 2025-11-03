@@ -173,11 +173,12 @@ fn test_homomorphic_wedge_product() {
 }
 
 #[test]
-#[ignore] // Requires depth-2 (4+ primes in chain). Current params only support depth-1.
 fn test_homomorphic_inner_product() {
     println!("\n=== Testing Homomorphic Inner Product ===");
 
-    let params = CliffordFHEParams::new_rns_mult();
+    // Use 5-prime params for depth-2 support
+    let params = CliffordFHEParams::new_rns_mult_depth2_safe();
+    println!("Using {} primes for inner product", params.moduli.len());
     let (pk, sk, evk) = rns_keygen(&params);
 
     // Test: e₁ · e₁ = 1 (inner product of vector with itself)
@@ -209,11 +210,12 @@ fn test_homomorphic_inner_product() {
 }
 
 #[test]
-#[ignore] // Requires depth-2 (4+ primes in chain). Current params only support depth-1.
 fn test_homomorphic_rotation() {
     println!("\n=== Testing Homomorphic Rotation ===");
 
-    let params = CliffordFHEParams::new_rns_mult();
+    // Use 5-prime params for depth-2 support (rotation needs 2 multiplications)
+    let params = CliffordFHEParams::new_rns_mult_depth2_safe();
+    println!("Using {} primes: {:?}", params.moduli.len(), params.moduli);
     let (pk, sk, evk) = rns_keygen(&params);
 
     // Create a 90° rotation about Z-axis
@@ -252,11 +254,12 @@ fn test_homomorphic_rotation() {
 }
 
 #[test]
-#[ignore] // Requires depth-3+ (5+ primes in chain). Current params only support depth-1.
 fn test_homomorphic_projection() {
     println!("\n=== Testing Homomorphic Projection ===");
 
-    let params = CliffordFHEParams::new_rns_mult();
+    // Use 5-prime params for depth-3 support
+    let params = CliffordFHEParams::new_rns_mult_depth2_safe();
+    println!("Using {} primes for projection", params.moduli.len());
     let (pk, sk, evk) = rns_keygen(&params);
 
     // Project (e₁ + e₂) onto e₁
@@ -291,11 +294,12 @@ fn test_homomorphic_projection() {
 }
 
 #[test]
-#[ignore] // Requires depth-3+ (5+ primes in chain). Current params only support depth-1.
 fn test_homomorphic_rejection() {
     println!("\n=== Testing Homomorphic Rejection ===");
 
-    let params = CliffordFHEParams::new_rns_mult();
+    // Use 5-prime params for depth-3 support
+    let params = CliffordFHEParams::new_rns_mult_depth2_safe();
+    println!("Using {} primes for rejection", params.moduli.len());
     let (pk, sk, evk) = rns_keygen(&params);
 
     // Reject (e₁ + e₂) from e₁

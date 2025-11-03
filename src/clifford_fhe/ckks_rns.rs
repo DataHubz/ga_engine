@@ -766,9 +766,36 @@ fn rns_relinearize_degree2(
     let mut c1 = d1.clone();
 
     for t in 0..d2_digits.len() {
-        // Multiply small digit by corresponding EVK component
-        let u0 = rns_poly_multiply(&d2_digits[t], &evk.evk0[t], primes, polynomial_multiply_ntt);
-        let u1 = rns_poly_multiply(&d2_digits[t], &evk.evk1[t], primes, polynomial_multiply_ntt);
+        // LEVEL MATCHING: If digit is at level L, but EVK is at level 0,
+        // we need to truncate EVK to match the digit's level.
+        let digit_level = d2_digits[t].level;
+        let digit_num_primes = d2_digits[t].num_primes();
+
+        let evk0_matched = if evk.evk0[t].level != digit_level {
+            // Truncate EVK to match digit level
+            let mut new_coeffs = Vec::new();
+            for i in 0..evk.evk0[t].n {
+                new_coeffs.push(evk.evk0[t].rns_coeffs[i][..digit_num_primes].to_vec());
+            }
+            RnsPolynomial::new(new_coeffs, evk.evk0[t].n, digit_level)
+        } else {
+            evk.evk0[t].clone()
+        };
+
+        let evk1_matched = if evk.evk1[t].level != digit_level {
+            // Truncate EVK to match digit level
+            let mut new_coeffs = Vec::new();
+            for i in 0..evk.evk1[t].n {
+                new_coeffs.push(evk.evk1[t].rns_coeffs[i][..digit_num_primes].to_vec());
+            }
+            RnsPolynomial::new(new_coeffs, evk.evk1[t].n, digit_level)
+        } else {
+            evk.evk1[t].clone()
+        };
+
+        // Multiply small digit by corresponding EVK component (now at matching levels)
+        let u0 = rns_poly_multiply(&d2_digits[t], &evk0_matched, primes, polynomial_multiply_ntt);
+        let u1 = rns_poly_multiply(&d2_digits[t], &evk1_matched, primes, polynomial_multiply_ntt);
 
         eprintln!("  After mult with evk[{}]: u0[0]={:?}, u1[0]={:?}",
                   t, &u0.rns_coeffs[0][..u0.num_primes().min(3)], &u1.rns_coeffs[0][..u1.num_primes().min(3)]);

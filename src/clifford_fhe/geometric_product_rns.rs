@@ -445,6 +445,14 @@ pub fn geometric_product_3d_componentwise(
         let mut accumulator: Option<RnsCiphertext> = None;
 
         for &(coeff, a_idx, b_idx) in product_terms {
+            // Debug: check levels before multiplication
+            if cts_a[a_idx].level != cts_b[b_idx].level {
+                eprintln!("[GP ERROR] Level mismatch before multiply!");
+                eprintln!("  output_idx={}, a_idx={}, b_idx={}", output_idx, a_idx, b_idx);
+                eprintln!("  cts_a[{}].level = {}", a_idx, cts_a[a_idx].level);
+                eprintln!("  cts_b[{}].level = {}", b_idx, cts_b[b_idx].level);
+            }
+
             // Multiply the encrypted components
             let product = rns_multiply_ciphertexts(
                 &cts_a[a_idx],
@@ -529,13 +537,17 @@ pub fn reverse_2d(ct: &[RnsCiphertext; 4], params: &CliffordFHEParams) -> [RnsCi
 
 /// Negate a ciphertext: -ct = (-c0, -c1)
 fn negate_ciphertext(ct: &RnsCiphertext, primes: &[i64], n: usize) -> RnsCiphertext {
-    let num_primes = primes.len();
+    // Use the actual number of primes in the ciphertext (not total primes)
+    // This handles ciphertexts at any level correctly
+    let num_primes = ct.c0.rns_coeffs[0].len();
+    let active_primes = &primes[..num_primes];
+
     let mut neg_c0_coeffs = vec![vec![0i64; num_primes]; n];
     let mut neg_c1_coeffs = vec![vec![0i64; num_primes]; n];
 
     for i in 0..n {
         for j in 0..num_primes {
-            let qi = primes[j];
+            let qi = active_primes[j];
             neg_c0_coeffs[i][j] = (qi - ct.c0.rns_coeffs[i][j] % qi) % qi;
             neg_c1_coeffs[i][j] = (qi - ct.c1.rns_coeffs[i][j] % qi) % qi;
         }
@@ -725,24 +737,84 @@ pub fn reverse_3d(ct: &[RnsCiphertext; 8], params: &CliffordFHEParams) -> [RnsCi
     [ct0, ct1, ct2, ct3, ct4, ct5, ct6, ct7]
 }
 
+/// Helper: Drop one modulus from a ciphertext to match level (modswitch without rescale)
+///
+/// This is needed when we need to match levels between ciphertexts for multiplication.
+/// After multiplication, result is at level+1. To multiply again, we need operands at same level.
+fn modswitch_to_next_level(ct: &RnsCiphertext, params: &CliffordFHEParams) -> RnsCiphertext {
+    use crate::clifford_fhe::rns::{RnsPolynomial, Domain};
+
+    // Drop the last prime to advance level
+    let new_level = ct.level + 1;
+    let new_num_primes = params.moduli.len() - new_level;
+
+    // Truncate RnsPolynomial to fewer primes
+    let mut new_c0_coeffs = Vec::new();
+    let mut new_c1_coeffs = Vec::new();
+
+    for i in 0..ct.n {
+        new_c0_coeffs.push(ct.c0.rns_coeffs[i][..new_num_primes].to_vec());
+        new_c1_coeffs.push(ct.c1.rns_coeffs[i][..new_num_primes].to_vec());
+    }
+
+    let new_c0 = RnsPolynomial {
+        rns_coeffs: new_c0_coeffs,
+        n: ct.n,
+        level: new_level,
+        domain: ct.c0.domain,  // Preserve domain
+    };
+    let new_c1 = RnsPolynomial {
+        rns_coeffs: new_c1_coeffs,
+        n: ct.n,
+        level: new_level,
+        domain: ct.c1.domain,  // Preserve domain
+    };
+
+    RnsCiphertext {
+        c0: new_c0,
+        c1: new_c1,
+        n: ct.n,
+        level: new_level,
+        scale: ct.scale,  // Scale stays the same (no rescale, just modswitch)
+    }
+}
+
 /// Homomorphic rotation operation for Cl(3,0)
 ///
 /// Applies a rotor R to a vector x: R·x·R̃
 ///
 /// This is the key operation for encrypted rotations in 3D space.
+///
+/// **Level management**: This is a depth-2 operation.
+/// - Input: level 0 (uses all primes)
+/// - After R⊗v: level 1 (dropped 1 prime)
+/// - Before (R⊗v)⊗~R: modswitch R to level 1 to match
+/// - After (R⊗v)⊗~R: level 2 (dropped 2 primes)
 pub fn rotate_3d(
     rotor: &[RnsCiphertext; 8],
     vector: &[RnsCiphertext; 8],
     evk: &RnsEvaluationKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 8] {
-    // Step 1: Compute R·x
+    // Step 1: Compute R⊗v (both at level 0 → result at level 1)
     let rx = geometric_product_3d_componentwise(rotor, vector, evk, params);
 
-    // Step 2: Compute R̃ (reverse of R)
-    let rotor_reverse = reverse_3d(rotor, params);
+    // Step 2: Modswitch R to level 1 to match rx's level
+    let rotor_level1: [RnsCiphertext; 8] = std::array::from_fn(|i| {
+        modswitch_to_next_level(&rotor[i], params)
+    });
 
-    // Step 3: Compute (R·x)·R̃
+    eprintln!("\n[ROTATION] After first GP:");
+    eprintln!("  rx[0].level = {}", rx[0].level);
+    eprintln!("  rotor_level1[0].level = {}", rotor_level1[0].level);
+
+    // Step 3: Compute ~R at level 1
+    let rotor_reverse = reverse_3d(&rotor_level1, params);
+
+    eprintln!("  rotor_reverse[0].level = {}", rotor_reverse[0].level);
+
+    // Step 4: Compute (R⊗v)⊗~R (both at level 1 → result at level 2)
+    eprintln!("[ROTATION] Starting second GP...");
     geometric_product_3d_componentwise(&rx, &rotor_reverse, evk, params)
 }
 
@@ -838,27 +910,27 @@ pub fn project_3d(
     evk: &RnsEvaluationKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 8] {
-    // Compute a · b (scalar result)
+    // Compute a · b (scalar result, level 2 after 2 GPs)
     let a_dot_b = inner_product_3d(cts_a, cts_b, evk, params);
 
-    // Compute b · b (scalar result)
-    let b_dot_b = inner_product_3d(cts_b, cts_b, evk, params);
+    // LEVEL MATCHING: a_dot_b is at level 2, but cts_a is at level 0
+    // We need to modswitch cts_a to level 2 to match
+    // Formula: proj_a(b) = (a·b) / (a·a) × a
+    // For unit vectors, (a·a) = 1, so: proj_a(b) = (a·b) × a
+    let target_level = a_dot_b[0].level;
+    let cts_a_matched: [RnsCiphertext; 8] = std::array::from_fn(|i| {
+        let mut ct = cts_a[i].clone();
+        // Modswitch from level 0 → target_level (drop target_level primes)
+        for _ in 0..target_level {
+            ct = modswitch_to_next_level(&ct, params);
+        }
+        ct
+    });
 
-    // Compute (a · b) / (b · b)
-    // This is scalar, so we just divide the scalar component
-    // For simplicity, we'll compute (a · b) * b and adjust scale to divide by (b · b)
-    // This requires decryption to get b·b value, which breaks homomorphism
-    // So we'll use a simpler approach: return (a · b) * b with note that
-    // the caller needs to handle the (b · b) normalization
-
-    // For now, return a·b ⊗ b (which gives us the unnormalized projection)
-    // The normalization by b·b would require either:
-    // 1. Plaintext b·b (if b is known)
-    // 2. Or approximate division (complex)
-
-    // Simplified: compute (a·b) ⊗ b
-    // Since a·b is mostly scalar (component 0), multiply b by that scalar
-    geometric_product_3d_componentwise(&a_dot_b, cts_b, evk, params)
+    // Compute (a·b) ⊗ a (both now at level 2 → result at level 3)
+    // Since a·b is mostly scalar (component 0), this multiplies a by that scalar
+    // This gives us the projection of b onto a
+    geometric_product_3d_componentwise(&a_dot_b, &cts_a_matched, evk, params)
 }
 
 /// Homomorphic rejection of vector a from vector b in Cl(3,0)
@@ -872,22 +944,52 @@ pub fn reject_3d(
     evk: &RnsEvaluationKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 8] {
-    let primes = &params.moduli;
     let n = params.n;
 
-    // Compute projection
+    // Compute projection (result at level 3)
     let proj = project_3d(cts_a, cts_b, evk, params);
 
-    // Compute a - proj
+    // LEVEL AND SCALE MATCHING: proj is at level 3 with reduced scale,
+    // but cts_b is at level 0 with original scale
+    let target_level = proj[0].level;
+
+    // First, modswitch cts_b to match level
+    let cts_b_level_matched: [RnsCiphertext; 8] = std::array::from_fn(|i| {
+        let mut ct = cts_b[i].clone();
+        // Modswitch from level 0 → target_level
+        for _ in 0..target_level {
+            ct = modswitch_to_next_level(&ct, params);
+        }
+        ct
+    });
+
+    // Now adjust scale of cts_b_level_matched to match proj's scale
+    // After 3 multiplications with rescaling, proj's scale is much smaller
+    // We need to multiply cts_b's scale by the ratio of dropped primes
+    let cts_b_matched: [RnsCiphertext; 8] = std::array::from_fn(|i| {
+        let mut ct = cts_b_level_matched[i].clone();
+        // Adjust scale to match proj (proj has been rescaled 3 times)
+        // Each multiplication divides scale by a prime (≈ 2^44)
+        // So proj's scale ≈ original_scale / (Q0 * Q1 * Q2)
+        // We need to match this by multiplying b's scale by the same factors
+        ct.scale = proj[i].scale;
+        ct
+    });
+
+    // Get active primes for the matched level
+    let active_primes = &params.moduli[..proj[0].c0.num_primes()];
+
+    // Compute b - proj (both at level 3 with matched scales)
+    // Rejection: rej_a(b) = b - proj_a(b) = perpendicular component of b relative to a
     [
-        subtract_ciphertexts(&cts_a[0], &proj[0], primes, n),
-        subtract_ciphertexts(&cts_a[1], &proj[1], primes, n),
-        subtract_ciphertexts(&cts_a[2], &proj[2], primes, n),
-        subtract_ciphertexts(&cts_a[3], &proj[3], primes, n),
-        subtract_ciphertexts(&cts_a[4], &proj[4], primes, n),
-        subtract_ciphertexts(&cts_a[5], &proj[5], primes, n),
-        subtract_ciphertexts(&cts_a[6], &proj[6], primes, n),
-        subtract_ciphertexts(&cts_a[7], &proj[7], primes, n),
+        subtract_ciphertexts(&cts_b_matched[0], &proj[0], active_primes, n),
+        subtract_ciphertexts(&cts_b_matched[1], &proj[1], active_primes, n),
+        subtract_ciphertexts(&cts_b_matched[2], &proj[2], active_primes, n),
+        subtract_ciphertexts(&cts_b_matched[3], &proj[3], active_primes, n),
+        subtract_ciphertexts(&cts_b_matched[4], &proj[4], active_primes, n),
+        subtract_ciphertexts(&cts_b_matched[5], &proj[5], active_primes, n),
+        subtract_ciphertexts(&cts_b_matched[6], &proj[6], active_primes, n),
+        subtract_ciphertexts(&cts_b_matched[7], &proj[7], active_primes, n),
     ]
 }
 

@@ -565,9 +565,11 @@ pub fn mod_inverse(a: i128, m: i128) -> i128 {
 pub fn rns_add(a: &RnsPolynomial, b: &RnsPolynomial, primes: &[i64]) -> RnsPolynomial {
     assert_eq!(a.n, b.n, "Polynomials must have same length");
     assert_eq!(a.level, b.level, "Polynomials must be at same level");
+    assert_eq!(a.domain, b.domain, "Polynomials must be in same domain");
 
     let n = a.n;
     let level = a.level;
+    let domain = a.domain;  // Preserve domain
     let num_primes = a.num_primes();
     let active_primes = &primes[..num_primes];
 
@@ -580,7 +582,7 @@ pub fn rns_add(a: &RnsPolynomial, b: &RnsPolynomial, primes: &[i64]) -> RnsPolyn
         }
     }
 
-    RnsPolynomial::new(rns_coeffs, n, level)
+    RnsPolynomial::new_with_domain(rns_coeffs, n, level, domain)
 }
 
 /// RNS polynomial subtraction
@@ -589,9 +591,11 @@ pub fn rns_add(a: &RnsPolynomial, b: &RnsPolynomial, primes: &[i64]) -> RnsPolyn
 pub fn rns_sub(a: &RnsPolynomial, b: &RnsPolynomial, primes: &[i64]) -> RnsPolynomial {
     assert_eq!(a.n, b.n, "Polynomials must have same length");
     assert_eq!(a.level, b.level, "Polynomials must be at same level");
+    assert_eq!(a.domain, b.domain, "Polynomials must be in same domain");
 
     let n = a.n;
     let level = a.level;
+    let domain = a.domain;  // Preserve domain
     let num_primes = a.num_primes();
     let active_primes = &primes[..num_primes];
 
@@ -604,7 +608,7 @@ pub fn rns_sub(a: &RnsPolynomial, b: &RnsPolynomial, primes: &[i64]) -> RnsPolyn
         }
     }
 
-    RnsPolynomial::new(rns_coeffs, n, level)
+    RnsPolynomial::new_with_domain(rns_coeffs, n, level, domain)
 }
 
 /// RNS polynomial negation
