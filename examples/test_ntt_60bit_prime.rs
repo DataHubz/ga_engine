@@ -96,7 +96,7 @@ fn mod_add(a: i64, b: i64, q: i64) -> i64 {
 #[inline(always)]
 fn mod_mul(a: i64, b: i64, q: i64) -> i64 {
     let p = (a as i128) * (b as i128);
-    ((p % (q as i128)) as i64)
+    (p % (q as i128)) as i64
 }
 
 fn mod_pow(mut base: i64, mut exp: i64, q: i64) -> i64 {
