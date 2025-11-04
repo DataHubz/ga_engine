@@ -6,6 +6,17 @@
 //! - Precomputed structure constants
 //!
 //! **Performance Target:** 10-20× faster geometric operations vs V1
+//!
+//! **Status:**
+//! - ✅ Structure constants (Cl3StructureConstants)
+//! - ✅ Basic operations: reverse, add, sub, scalar mul
+//! - 🚧 Ciphertext multiplication (needs relinearization)
+//! - 🚧 Geometric product (needs NTT-based ct multiplication)
+//! - 🚧 Wedge product
+//! - 🚧 Inner product
+//! - 🚧 Rotation
+//! - 🚧 Projection
+//! - 🚧 Rejection
 
 use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Ciphertext;
 use crate::clifford_fhe_v2::backends::cpu_optimized::keys::{EvaluationKey, KeyContext};
@@ -17,9 +28,127 @@ use crate::clifford_fhe_v2::params::CliffordFHEParams;
 /// Components represent:
 /// - [0]: scalar (grade 0)
 /// - [1,2,3]: vectors e₁, e₂, e₃ (grade 1)
-/// - [4,5,6]: bivectors e₂₃, e₃₁, e₁₂ (grade 2)
+/// - [4,5,6]: bivectors e₁₂, e₁₃, e₂₃ (grade 2)
 /// - [7]: trivector e₁₂₃ (grade 3)
+///
+/// **Note:** Component ordering matches V1 for compatibility
 pub type MultivectorCiphertext = [Ciphertext; 8];
+
+/// Cl(3,0) structure constants for geometric product
+///
+/// For each output component, stores list of (coefficient, input_a_idx, input_b_idx)
+/// This encodes the Clifford algebra multiplication table
+pub struct Cl3StructureConstants {
+    pub products: Vec<Vec<(i64, usize, usize)>>,
+}
+
+impl Cl3StructureConstants {
+    /// Create structure constants for Cl(3,0)
+    ///
+    /// Basis: {1, e₁, e₂, e₃, e₁₂, e₁₃, e₂₃, e₁₂₃}
+    /// Signature: e₁²=e₂²=e₃²=1
+    pub fn new() -> Self {
+        let mut products = vec![Vec::new(); 8];
+
+        // Component 0 (scalar): vectors square to +1, bivectors to -1
+        products[0] = vec![
+            (1, 0, 0),   // 1⊗1
+            (1, 1, 1),   // e₁⊗e₁
+            (1, 2, 2),   // e₂⊗e₂
+            (1, 3, 3),   // e₃⊗e₃
+            (-1, 4, 4),  // e₁₂⊗e₁₂
+            (-1, 5, 5),  // e₁₃⊗e₁₃
+            (-1, 6, 6),  // e₂₃⊗e₂₃
+            (-1, 7, 7),  // e₁₂₃⊗e₁₂₃
+        ];
+
+        // Component 1 (e₁)
+        products[1] = vec![
+            (1, 0, 1),   // 1⊗e₁
+            (1, 1, 0),   // e₁⊗1
+            (1, 2, 4),   // e₂⊗e₁₂
+            (-1, 4, 2),  // e₁₂⊗e₂
+            (1, 3, 5),   // e₃⊗e₁₃
+            (-1, 5, 3),  // e₁₃⊗e₃
+            (-1, 6, 7),  // e₂₃⊗e₁₂₃
+            (1, 7, 6),   // e₁₂₃⊗e₂₃
+        ];
+
+        // Component 2 (e₂)
+        products[2] = vec![
+            (1, 0, 2),   // 1⊗e₂
+            (1, 2, 0),   // e₂⊗1
+            (-1, 1, 4),  // e₁⊗e₁₂
+            (1, 4, 1),   // e₁₂⊗e₁
+            (1, 3, 6),   // e₃⊗e₂₃
+            (-1, 6, 3),  // e₂₃⊗e₃
+            (-1, 5, 7),  // e₁₃⊗e₁₂₃
+            (1, 7, 5),   // e₁₂₃⊗e₁₃
+        ];
+
+        // Component 3 (e₃)
+        products[3] = vec![
+            (1, 0, 3),   // 1⊗e₃
+            (1, 3, 0),   // e₃⊗1
+            (-1, 1, 5),  // e₁⊗e₁₃
+            (1, 5, 1),   // e₁₃⊗e₁
+            (-1, 2, 6),  // e₂⊗e₂₃
+            (1, 6, 2),   // e₂₃⊗e₂
+            (-1, 4, 7),  // e₁₂⊗e₁₂₃
+            (1, 7, 4),   // e₁₂₃⊗e₁₂
+        ];
+
+        // Component 4 (e₁₂)
+        products[4] = vec![
+            (1, 0, 4),   // 1⊗e₁₂
+            (1, 4, 0),   // e₁₂⊗1
+            (1, 1, 2),   // e₁⊗e₂
+            (-1, 2, 1),  // e₂⊗e₁
+            (1, 3, 7),   // e₃⊗e₁₂₃
+            (-1, 7, 3),  // e₁₂₃⊗e₃
+            (1, 5, 6),   // e₁₃⊗e₂₃
+            (-1, 6, 5),  // e₂₃⊗e₁₃
+        ];
+
+        // Component 5 (e₁₃)
+        products[5] = vec![
+            (1, 0, 5),   // 1⊗e₁₃
+            (1, 5, 0),   // e₁₃⊗1
+            (1, 1, 3),   // e₁⊗e₃
+            (-1, 3, 1),  // e₃⊗e₁
+            (-1, 2, 7),  // e₂⊗e₁₂₃
+            (1, 7, 2),   // e₁₂₃⊗e₂
+            (-1, 4, 6),  // e₁₂⊗e₂₃
+            (1, 6, 4),   // e₂₃⊗e₁₂
+        ];
+
+        // Component 6 (e₂₃)
+        products[6] = vec![
+            (1, 0, 6),   // 1⊗e₂₃
+            (1, 6, 0),   // e₂₃⊗1
+            (1, 2, 3),   // e₂⊗e₃
+            (-1, 3, 2),  // e₃⊗e₂
+            (1, 1, 7),   // e₁⊗e₁₂₃
+            (-1, 7, 1),  // e₁₂₃⊗e₁
+            (1, 4, 5),   // e₁₂⊗e₁₃
+            (-1, 5, 4),  // e₁₃⊗e₁₂
+        ];
+
+        // Component 7 (e₁₂₃)
+        products[7] = vec![
+            (1, 0, 7),   // 1⊗e₁₂₃
+            (1, 7, 0),   // e₁₂₃⊗1
+            (1, 1, 6),   // e₁⊗e₂₃
+            (-1, 6, 1),  // e₂₃⊗e₁
+            (-1, 2, 5),  // e₂⊗e₁₃
+            (1, 5, 2),   // e₁₃⊗e₂
+            (1, 3, 4),   // e₃⊗e₁₂
+            (-1, 4, 3),  // e₁₂⊗e₃
+        ];
+
+        Cl3StructureConstants { products }
+    }
+}
 
 /// Geometric algebra context for homomorphic operations
 pub struct GeometricContext {
