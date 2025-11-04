@@ -676,7 +676,7 @@ If you use this work, please cite:
 - [ ] **NTT Implementation** - 10-100× speedup
 - [ ] **SIMD Batching** - Pack multivectors into slots
 - [ ] **GPU Acceleration** - CUDA/Metal backends
-- [ ] **Benchmarking Suite** - Reproduce paper Table 1 exactly
+- [ ] **Benchmarking Suite** - Comprehensive performance metrics for V1 vs V2
 
 ### Medium Term (6-12 months)
 
@@ -733,75 +733,89 @@ cargo build --examples --release
 cargo doc --open
 ```
 
-### Run Examples (2 available)
+### Available Examples
 
 ```bash
 # 1. Encrypted 3D Classification (Main ML Application)
-#    Runtime: ~2-3 minutes
+#    Runtime: ~2-3 minutes (V1), target ~1 minute (V2)
 #    Shows: Complete encrypted inference pipeline
-cargo run --example encrypted_3d_classification --release
+cargo run --example encrypted_3d_classification --release --features v1
 
 # 2. Basic FHE Demo
 #    Runtime: ~5 seconds
 #    Shows: Basic encryption/decryption cycle
-cargo run --example clifford_fhe_basic --release
+cargo run --example clifford_fhe_basic --release --features v1
 ```
 
 ### Run Tests
 
 ```bash
-# Run ALL tests (unit + integration)
+# V1: Run ALL tests (unit + integration)
 #    Runtime: ~10-15 minutes
 #    Includes: 31 unit tests + 7 geometric operation tests
-cargo test
+cargo test --features v1
 
-# Run ONLY unit tests (fast)
+# V1: Run ONLY unit tests (fast)
 #    Runtime: ~1 minute
 #    Tests: RNS arithmetic, keys, basic crypto
-cargo test --lib
+cargo test --lib --features v1
 
-# Run ONLY geometric operations tests (slow but critical)
+# V1: Run ONLY geometric operations tests (slow but critical)
 #    Runtime: ~10 minutes
 #    Tests: All 7 homomorphic operations with detailed output
-cargo test --test test_geometric_operations -- --nocapture
+cargo test --test test_geometric_operations --features v1 -- --nocapture
 
-# Run specific test
-cargo test test_homomorphic_geometric_product -- --nocapture
+# V1: Run specific test
+cargo test test_homomorphic_geometric_product --features v1 -- --nocapture
+
+# V2: Tests (when implemented)
+cargo test --features v2-cpu-optimized
 ```
 
-### Verify Paper Claims
+### Verify Claims
 
 ```bash
-# Verify: All 7 operations work with <10⁻⁶ error
-cargo test --test test_geometric_operations -- --nocapture
+# Verify: All 7 operations work with <10⁻⁶ error (V1 baseline)
+cargo test --test test_geometric_operations --features v1 -- --nocapture
 
-# Verify: Encrypted 3D classification achieves 99% accuracy
-cargo run --example encrypted_3d_classification --release
+# Verify: Encrypted 3D classification achieves 99% accuracy (V1 baseline)
+cargo run --example encrypted_3d_classification --release --features v1
 
-# Full verification (everything)
-cargo test && cargo run --example encrypted_3d_classification --release
+# Full verification (everything, V1)
+cargo test --features v1 && cargo run --example encrypted_3d_classification --release --features v1
+
+# Compare V1 vs V2 performance (when V2 is implemented)
+cargo bench --features v1 -- --save-baseline v1
+cargo bench --features v2-cpu-optimized -- --baseline v1
 ```
 
 ## What's Included
 
 This repository contains:
 
-**Examples (2 files):**
-- `examples/encrypted_3d_classification.rs` - Main ML application (Paper Section 5)
-- `examples/clifford_fhe_basic.rs` - Basic encryption demo
+**Two Implementations:**
+- `src/clifford_fhe_v1/` - V1 baseline reference (11 files, stable, complete)
+- `src/clifford_fhe_v2/` - V2 optimized version (active development, backend architecture)
+
+**Examples:**
+- `examples/encrypted_3d_classification.rs` - Main ML application demo
+- `examples/clifford_fhe_basic.rs` - Basic encryption/decryption demo
 
 **Tests:**
 - `tests/test_geometric_operations.rs` - All 7 homomorphic operations ✅
 - `tests/clifford_fhe_integration_tests.rs` - Integration tests
-- Plus 31 unit tests in `src/` modules
+- Plus 31 unit tests in V1 modules (all passing)
 
 **Source Code:**
-- `src/clifford_fhe/` - Complete Clifford FHE implementation (11 files)
-- `src/ga.rs` - Plaintext geometric algebra
-- Other GA utilities (multivectors, rotors, etc.)
+- `src/clifford_fhe_v1/` - V1 baseline: Complete RNS-CKKS implementation
+- `src/clifford_fhe_v2/` - V2 optimized: Trait-based backend system
+- `src/ga.rs` - Plaintext geometric algebra (shared by both versions)
+- Other GA utilities (multivectors, rotors, bivectors, etc.)
 
 **Documentation:**
-- `README.md` - This file (complete reference)
+- `README.md` - This file (complete user guide)
+- `ARCHITECTURE.md` - V1/V2 design philosophy and migration details
+- `paper/` - Research publication materials (LaTeX sources)
 
 **This is the complete documentation for Clifford FHE. Everything you need to know is in this README.**
 
