@@ -12,7 +12,7 @@ The flagship implementation is **Clifford FHE**, the first RNS-CKKS-based fully 
 **Key Features:**
 - **Native Geometric Operations:** All 7 fundamental Clifford algebra operations work homomorphically (geometric product, reverse, rotation, wedge, inner, projection, rejection)
 - **High Performance:** Metal GPU backend achieves 387× speedup over baseline (34ms per homomorphic geometric product)
-- **Production Ready:** Multiple backends (CPU with Rayon, Metal GPU for Apple Silicon, CUDA planned)
+- **Production Candidate:** Multiple backends (CPU with Rayon, Metal GPU for Apple Silicon, CUDA planned)
 - **Proven Applications:** 99% accuracy on encrypted 3D point cloud classification
 
 **Current Applications:**
