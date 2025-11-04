@@ -22,14 +22,14 @@
 
 This repository contains **two implementations** of Clifford FHE:
 
-### V1 (Baseline - Stable)
+### V1 (Baseline)
 - **Status:** ✅ Complete, stable, reference implementation
 - **Performance:** 13s per homomorphic geometric product
 - **Accuracy:** 99% encrypted classification, <10⁻⁶ error
 - **Use when:** Baseline comparisons, reproducibility, educational purposes
 - **Characteristics:** Straightforward implementation, well-documented, fully tested
 
-### V2 (Optimized - Production Ready)
+### V2 (Optimized)
 - **Status:** ✅ Complete with 3-4× speedup over V1 baseline
 - **Performance:** 2.88s per homomorphic geometric product (4.5× faster than V1's 13s)
 - **Core Operations:** 3.2× faster keygen, 4.2× faster encryption, 4.4× faster decryption, 2.8× faster multiplication
