@@ -54,9 +54,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for complete details on the dual-version 
 
 ---
 
-## Research Publications
-
-This work has been described in academic publications. See `paper/` directory for details.
+## Ongoing Research
 
 ### Three Key Contributions
 
