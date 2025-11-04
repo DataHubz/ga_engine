@@ -1,18 +1,30 @@
 //! CUDA GPU Backend for Clifford FHE V2
 //!
-//! **Target:** 50-100× speedup vs V1 baseline
+//! **Performance Target:** 20-25ms per geometric product on RTX 4090 (520-650× vs V1)
 //!
-//! **Optimizations:**
-//! - CUDA kernels for NTT polynomial multiplication
-//! - Batched ciphertext operations on GPU
-//! - Memory hierarchy optimization (global/shared/registers)
-//! - Kernel fusion strategies
+//! **Implementation:**
+//! - Harvey Butterfly NTT in CUDA compute kernels
+//! - Parallelized geometric product (64 multiplications across GPU)
+//! - Uses `cudarc` for Rust-CUDA interop
 //!
 //! **Requirements:**
-//! - NVIDIA GPU with CUDA 11.0+
+//! - NVIDIA GPU with CUDA 12.0+ (Compute Capability 7.5+)
+//! - CUDA Toolkit installed
 //! - `cudarc` Rust crate
 //!
-//! **Status:** Phase 2 implementation (V2 optimization roadmap)
+//! **Status:** V2 Phase 3 - GPU Acceleration (CUDA implementation)
+
+#[cfg(feature = "v2-gpu-cuda")]
+pub mod device;
+
+#[cfg(feature = "v2-gpu-cuda")]
+pub mod ntt;
+
+#[cfg(feature = "v2-gpu-cuda")]
+pub mod geometric;
+
+#[cfg(feature = "v2-gpu-cuda")]
+pub use geometric::CudaGeometricProduct;
 
 #[cfg(feature = "v2-gpu-cuda")]
 use crate::clifford_fhe_v2::core::{BackendCapabilities, BackendInfo};
@@ -37,6 +49,7 @@ impl BackendInfo for GpuCudaBackend {
 
     fn recommended_params() -> Vec<String> {
         vec![
+            "N=1024, primes=3 (default, tested)".to_string(),
             "N=2048, primes=5 (GPU optimal)".to_string(),
             "N=4096, primes=7 (deep circuits)".to_string(),
         ]

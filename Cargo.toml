@@ -20,7 +20,7 @@ v2 = []      # Optimized version (active development)
 
 # === V2 Backend Selection (only active when v2 is enabled) ===
 v2-cpu-optimized = ["v2"]     # NTT + Rayon parallelization (30× speedup)
-v2-gpu-cuda = ["v2"]          # CUDA backend (50-100× speedup, requires NVIDIA GPU)
+v2-gpu-cuda = ["v2", "cudarc"]          # CUDA backend (target: <25ms, requires NVIDIA GPU)
 v2-gpu-metal = ["v2", "metal", "objc"]  # Metal backend (387× speedup achieved, requires Apple Silicon)
 v2-simd-batched = ["v2"]      # SIMD slot packing (8-16× throughput)
 
@@ -51,6 +51,9 @@ num-traits = "0.2"  # For Zero/One traits used with BigInt
 # Metal GPU support (optional, only on macOS with Apple Silicon)
 metal = { version = "0.27", optional = true }
 objc = { version = "0.2", optional = true }
+
+# CUDA GPU support (optional, requires NVIDIA GPU + CUDA toolkit)
+cudarc = { version = "0.11", optional = true, features = ["cuda-12030"] }
 
 [dev-dependencies]
 criterion      = { version = "0.4", features = ["html_reports"] }
