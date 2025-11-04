@@ -7,7 +7,7 @@
 
 ## TL;DR - Quick Summary
 
-- **What:** Privacy-preserving machine learning on 3D geometric data using FHE + geometric algebra
+- **What:** Clifford FHE with an application for privacy-preserving machine learning on 3D geometric data using FHE + geometric algebra
 - **Performance:** V2 achieves **30× speedup** over V1 (**0.441s** vs 13s per homomorphic geometric product)
 - **Core Speedups:** 3.2× keygen, 4.2× encrypt, 4.4× decrypt, 2.8× multiply, **6.5× parallel geometric ops**
 - **Tests:** 127 tests passing in V2, all geometric operations working with <10⁻⁶ error
