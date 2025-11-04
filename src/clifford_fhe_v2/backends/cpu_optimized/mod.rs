@@ -25,8 +25,8 @@ pub mod ckks;
 /// V2 key generation with NTT
 pub mod keys;
 
-// TODO: Implement optimized geometric product
-// pub mod geometric_product;
+/// V2 geometric operations with NTT
+pub mod geometric;
 
 /// CPU-Optimized backend (placeholder for Phase 1)
 pub struct CpuOptimizedBackend;
