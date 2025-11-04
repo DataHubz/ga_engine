@@ -447,9 +447,9 @@ impl RnsPolynomial {
             };
 
             if i == 0 {
-                eprintln!("[DEBUG 2-prime CRT] a={}, b={}, contrib0={}, contrib1={}, c={}, centered={}",
-                         a, b, contrib0, contrib1, c, centered);
-                eprintln!("  Q={}, Q/2={}", q_product, q_product/2);
+                // eprintln!("[DEBUG 2-prime CRT] a={}, b={}, contrib0={}, contrib1={}, c={}, centered={}",
+                //          a, b, contrib0, contrib1, c, centered);
+                // eprintln!("  Q={}, Q/2={}", q_product, q_product/2);
             }
 
             coeffs[i] = centered;
@@ -704,10 +704,10 @@ pub fn rns_multiply(
                 let got = ((result.rns_coeffs[i][j] % q) + q) % q;
                 let exp = ((expected[i] % q) + q) % q;
                 if got != exp {
-                    eprintln!("❌ RNS_MULTIPLY SELFCHECK FAILED!");
-                    eprintln!("   coeff[{}], prime_idx[{}] (q={})", i, j, q);
-                    eprintln!("   Expected: {}", exp);
-                    eprintln!("   Got:      {}", got);
+                    // eprintln!("❌ RNS_MULTIPLY SELFCHECK FAILED!");
+                    // eprintln!("   coeff[{}], prime_idx[{}] (q={})", i, j, q);
+                    // eprintln!("   Expected: {}", exp);
+                    // eprintln!("   Got:      {}", got);
                     panic!("RNS multiply self-check failed - per-prime misalignment detected!");
                 }
             }

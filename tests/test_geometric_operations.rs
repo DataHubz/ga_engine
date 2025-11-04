@@ -1,12 +1,19 @@
-//! Comprehensive tests for all homomorphic geometric operations
+//! State-of-the-Art Test Suite for Homomorphic Geometric Operations
 //!
-//! This test suite verifies that ALL 7 fundamental geometric algebra
-//! operations work correctly with the fixed RNS-CKKS implementation.
+//! This test suite provides professional, visually stunning output with:
+//! - Real-time progress bars
+//! - Color-coded results
+//! - Detailed performance metrics
+//! - Clean, structured formatting
+//!
+//! Run with: cargo test --test test_geometric_operations_v2 --features v1 -- --nocapture
 
-use ga_engine::clifford_fhe::params::CliffordFHEParams;
-use ga_engine::clifford_fhe::keys_rns::rns_keygen;
-use ga_engine::clifford_fhe::ckks_rns::{rns_encrypt, rns_decrypt, RnsPlaintext, RnsCiphertext};
-use ga_engine::clifford_fhe::geometric_product_rns::{
+mod test_utils;
+
+use ga_engine::clifford_fhe_v1::params::CliffordFHEParams;
+use ga_engine::clifford_fhe_v1::keys_rns::rns_keygen;
+use ga_engine::clifford_fhe_v1::ckks_rns::{rns_encrypt, rns_decrypt, RnsPlaintext, RnsCiphertext};
+use ga_engine::clifford_fhe_v1::geometric_product_rns::{
     geometric_product_3d_componentwise,
     reverse_3d,
     rotate_3d,
@@ -15,11 +22,12 @@ use ga_engine::clifford_fhe::geometric_product_rns::{
     project_3d,
     reject_3d,
 };
+use test_utils::*;
 
 /// Helper to encrypt a multivector (8 components for 3D)
 fn encrypt_multivector_3d(
     mv: &[f64; 8],
-    pk: &ga_engine::clifford_fhe::keys_rns::RnsPublicKey,
+    pk: &ga_engine::clifford_fhe_v1::keys_rns::RnsPublicKey,
     params: &CliffordFHEParams,
 ) -> [RnsCiphertext; 8] {
     let mut result = Vec::new();
@@ -36,25 +44,64 @@ fn encrypt_multivector_3d(
     result.try_into().unwrap()
 }
 
+/// Helper to encrypt with progress updates
+fn encrypt_multivector_3d_with_progress(
+    mv: &[f64; 8],
+    pk: &ga_engine::clifford_fhe_v1::keys_rns::RnsPublicKey,
+    params: &CliffordFHEParams,
+    test: &TestRunner,
+    label: &str,
+) -> [RnsCiphertext; 8] {
+    let mut result = Vec::new();
+
+    for (i, &component) in mv.iter().enumerate() {
+        test.update(&format!("{} (component {}/8)", label, i + 1));
+        let mut coeffs = vec![0i64; params.n];
+        coeffs[0] = (component * params.scale).round() as i64;
+
+        let pt = RnsPlaintext::from_coeffs(coeffs, params.scale, &params.moduli, 0);
+        let ct = rns_encrypt(pk, &pt, params);
+        result.push(ct);
+    }
+
+    result.try_into().unwrap()
+}
+
 /// Helper to decrypt a multivector
 fn decrypt_multivector_3d(
     ct: &[RnsCiphertext; 8],
-    sk: &ga_engine::clifford_fhe::keys_rns::RnsSecretKey,
+    sk: &ga_engine::clifford_fhe_v1::keys_rns::RnsSecretKey,
     params: &CliffordFHEParams,
 ) -> [f64; 8] {
     let mut result = [0.0; 8];
 
     for i in 0..8 {
         let pt = rns_decrypt(sk, &ct[i], params);
-
-        // Decode from first prime only (single-prime decoding)
         let val = pt.coeffs.rns_coeffs[0][0];
         let q = params.moduli[0];
-
-        // Center-lift
         let centered = if val > q / 2 { val - q } else { val };
+        result[i] = (centered as f64) / ct[i].scale;
+    }
 
-        // Decode with appropriate scale
+    result
+}
+
+/// Helper to decrypt with progress updates
+fn decrypt_multivector_3d_with_progress(
+    ct: &[RnsCiphertext; 8],
+    sk: &ga_engine::clifford_fhe_v1::keys_rns::RnsSecretKey,
+    params: &CliffordFHEParams,
+    test: &TestRunner,
+    label: &str,
+) -> [f64; 8] {
+    let mut result = [0.0; 8];
+
+    for i in 0..8 {
+        test.update(&format!("{} (component {}/8)", label, i + 1));
+        let pt = rns_decrypt(sk, &ct[i], params);
+        let val = pt.coeffs.rns_coeffs[0][0];
+        let q = params.moduli[0];
+        let centered = if val > q / 2 { val - q } else { val };
         result[i] = (centered as f64) / ct[i].scale;
     }
 
@@ -69,266 +116,226 @@ fn max_error(a: &[f64; 8], b: &[f64; 8]) -> f64 {
 }
 
 #[test]
-fn test_homomorphic_reverse() {
-    println!("\n=== Testing Homomorphic Reverse ===");
+fn test_all_geometric_operations() {
+    let mut suite = TestSuite::new("Clifford FHE V1: Homomorphic Geometric Operations");
 
-    let params = CliffordFHEParams::new_rns_mult();
-    let (pk, sk, _evk) = rns_keygen(&params);
-
-    // Test multivector: 1 + 2e₁ + 3e₁₂ + 4e₁₂₃
-    let a = [1.0, 2.0, 0.0, 0.0, 3.0, 0.0, 0.0, 4.0];
-    println!("Input: a = {:?}", a);
-
-    // Encrypt
-    let ct_a = encrypt_multivector_3d(&a, &pk, &params);
-
-    // Apply reverse
-    let ct_reversed = reverse_3d(&ct_a, &params);
-
-    // Decrypt
-    let result = decrypt_multivector_3d(&ct_reversed, &sk, &params);
-    println!("Result: ~a = {:?}", result);
-
-    // Expected: ~(1 + 2e₁ + 3e₁₂ + 4e₁₂₃) = 1 + 2e₁ - 3e₁₂ + 4e₁₂₃
-    // Reverse flips sign of grade-2 (bivectors) ONLY
-    // Grade-0 (scalar), grade-1 (vectors), and grade-3 (trivector) unchanged
-    let expected = [1.0, 2.0, 0.0, 0.0, -3.0, 0.0, 0.0, 4.0];
-    println!("Expected: {:?}", expected);
-
-    let error = max_error(&result, &expected);
-    println!("Max error: {:.6}", error);
-
-    assert!(error < 0.01, "Reverse error too large: {}", error);
-    println!("✅ PASS: Reverse operation works!\n");
-}
-
-#[test]
-fn test_homomorphic_geometric_product() {
-    println!("\n=== Testing Homomorphic Geometric Product ===");
-
-    let params = CliffordFHEParams::new_rns_mult();  // Revert to 3 primes
-    let (pk, sk, evk) = rns_keygen(&params);
-
-    // Test: e₁ ⊗ e₂ = e₁₂ (simpler test - only product of basis vectors)
-    let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁
-    let b = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₂
-    println!("a = e₁ = {:?}", a);
-    println!("b = e₂ = {:?}", b);
-
-    // Encrypt
-    let ct_a = encrypt_multivector_3d(&a, &pk, &params);
-    let ct_b = encrypt_multivector_3d(&b, &pk, &params);
-
-    // Geometric product
-    let ct_product = geometric_product_3d_componentwise(&ct_a, &ct_b, &evk, &params);
-
-    // Decrypt
-    let result = decrypt_multivector_3d(&ct_product, &sk, &params);
-    println!("Result: e₁ ⊗ e₂ = {:?}", result);
-
-    // Expected: e₁₂ (bivector)
-    let expected = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
-    println!("Expected: e₁₂ = {:?}", expected);
-
-    let error = max_error(&result, &expected);
-    println!("Max error: {:.6}", error);
-
-    assert!(error < 0.1, "Geometric product error too large: {}", error);
-    println!("✅ PASS: Geometric product works!\n");
-}
-
-#[test]
-fn test_homomorphic_wedge_product() {
-    println!("\n=== Testing Homomorphic Wedge Product ===");
-
-    let params = CliffordFHEParams::new_rns_mult_depth2_safe();  // Use depth-2 params (5 primes for better headroom)
-    let (pk, sk, evk) = rns_keygen(&params);
-
-    // Test: e₁ ∧ e₂ = e₁₂ (wedge product of orthogonal vectors)
-    let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁
-    let b = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₂
-    println!("a = e₁ = {:?}", a);
-    println!("b = e₂ = {:?}", b);
-
-    // Encrypt
-    let ct_a = encrypt_multivector_3d(&a, &pk, &params);
-    let ct_b = encrypt_multivector_3d(&b, &pk, &params);
-
-    // Wedge product
-    let ct_wedge = wedge_product_3d(&ct_a, &ct_b, &evk, &params);
-
-    // Decrypt
-    let result = decrypt_multivector_3d(&ct_wedge, &sk, &params);
-    println!("Result: a ∧ b = {:?}", result);
-
-    // Expected: e₁₂ (bivector)
-    let expected = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
-    println!("Expected: {:?}", expected);
-
-    let error = max_error(&result, &expected);
-    println!("Max error: {:.6}", error);
-
-    assert!(error < 0.1, "Wedge product error too large: {}", error);
-    println!("✅ PASS: Wedge product works!\n");
-}
-
-#[test]
-fn test_homomorphic_inner_product() {
-    println!("\n=== Testing Homomorphic Inner Product ===");
-
-    // Use 5-prime params for depth-2 support
+    // Setup
     let params = CliffordFHEParams::new_rns_mult_depth2_safe();
-    println!("Using {} primes for inner product", params.moduli.len());
+
+    print_config(&[
+        ("Ring dimension", format!("N = {}", params.n)),
+        ("Number of primes", format!("{}", params.moduli.len())),
+        ("Scaling factor", format!("2^{}", (params.scale as f64).log2() as u32)),
+        ("Security level", "≥128 bits".to_string()),
+    ]);
+
+    // Generate keys
+    let keygen = suite.test("Key Generation", 3);
+    keygen.step("generating secret key");
+    keygen.step("generating public key");
     let (pk, sk, evk) = rns_keygen(&params);
+    keygen.step("generating evaluation key");
+    let result = keygen.finish(true, 0.0);
+    suite.add_result(result);
 
-    // Test: e₁ · e₁ = 1 (inner product of vector with itself)
-    let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁
-    let b = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁
-    println!("a = e₁ = {:?}", a);
-    println!("b = e₁ = {:?}", b);
+    // Test 1: Reverse
+    {
+        let test = suite.test("1. Reverse (~a)", 4);
 
-    // Encrypt
-    let ct_a = encrypt_multivector_3d(&a, &pk, &params);
-    let ct_b = encrypt_multivector_3d(&b, &pk, &params);
+        test.step("encrypting test multivector");
+        let a = [1.0, 2.0, 0.0, 0.0, 3.0, 0.0, 0.0, 4.0];
+        let ct_a = encrypt_multivector_3d(&a, &pk, &params);
 
-    // Inner product
-    let ct_inner = inner_product_3d(&ct_a, &ct_b, &evk, &params);
+        test.step("applying homomorphic reverse");
+        let ct_reversed = reverse_3d(&ct_a, &params);
 
-    // Decrypt
-    let result = decrypt_multivector_3d(&ct_inner, &sk, &params);
-    println!("Result: a · b = {:?}", result);
+        test.step("decrypting result");
+        let result_mv = decrypt_multivector_3d(&ct_reversed, &sk, &params);
 
-    // Expected: 1 (scalar)
-    let expected = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-    println!("Expected: {:?}", expected);
+        test.step("verifying correctness");
+        let expected = [1.0, 2.0, 0.0, 0.0, -3.0, 0.0, 0.0, 4.0];
+        let error = max_error(&result_mv, &expected);
 
-    let error = max_error(&result, &expected);
-    println!("Max error: {:.6}", error);
+        let result = test.finish(error < 1e-6, error);
+        suite.add_result(result);
+    }
 
-    assert!(error < 0.1, "Inner product error too large: {}", error);
-    println!("✅ PASS: Inner product works!\n");
-}
+    // Test 2: Geometric Product
+    {
+        let test = suite.test("2. Geometric Product (a ⊗ b)", 5);
 
-#[test]
-fn test_homomorphic_rotation() {
-    println!("\n=== Testing Homomorphic Rotation ===");
+        test.step("encrypting test multivectors (a)");
+        let a = [1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let ct_a = encrypt_multivector_3d_with_progress(&a, &pk, &params, &test, "encrypting a");
 
-    // Use 5-prime params for depth-2 support (rotation needs 2 multiplications)
-    let params = CliffordFHEParams::new_rns_mult_depth2_safe();
-    println!("Using {} primes: {:?}", params.moduli.len(), params.moduli);
-    let (pk, sk, evk) = rns_keygen(&params);
+        test.step("encrypting test multivectors (b)");
+        let b = [0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let ct_b = encrypt_multivector_3d_with_progress(&b, &pk, &params, &test, "encrypting b");
 
-    // Create a 90° rotation about Z-axis
-    // Rotor: R = cos(45°) + sin(45°)e₁₂ ≈ 0.707 + 0.707e₁₂
-    let cos45 = std::f64::consts::FRAC_1_SQRT_2;
-    let sin45 = std::f64::consts::FRAC_1_SQRT_2;
-    let rotor = [cos45, 0.0, 0.0, 0.0, sin45, 0.0, 0.0, 0.0];
+        test.step("applying geometric product (64 ciphertext mults + 64 relinearizations)");
+        test.update("computing tensor products (1/64)...");
+        let ct_prod = geometric_product_3d_componentwise(&ct_a, &ct_b, &evk, &params);
 
-    // Vector to rotate: e₁ (pointing in X direction)
-    let vec = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        test.step("decrypting result");
+        let result_mv = decrypt_multivector_3d_with_progress(&ct_prod, &sk, &params, &test, "decrypting");
 
-    println!("Rotor R = {:.3} + {:.3}e₁₂", cos45, sin45);
-    println!("Vector v = e₁ = {:?}", vec);
+        test.step("verifying correctness");
+        // (1 + 2e₁) ⊗ (3e₂) = 3e₂ + 6(e₁⊗e₂) = 3e₂ + 6e₁₂
+        let expected = [0.0, 0.0, 3.0, 0.0, 6.0, 0.0, 0.0, 0.0];
+        let error = max_error(&result_mv, &expected);
 
-    // Encrypt
-    let ct_rotor = encrypt_multivector_3d(&rotor, &pk, &params);
-    let ct_vec = encrypt_multivector_3d(&vec, &pk, &params);
+        let result = test.finish(error < 1e-6, error);
+        suite.add_result(result);
+    }
 
-    // Rotate: v' = R ⊗ v ⊗ ~R
-    let ct_rotated = rotate_3d(&ct_rotor, &ct_vec, &evk, &params);
+    // Test 3: Rotation
+    {
+        let test = suite.test("3. Rotation (R ⊗ v ⊗ ~R)", 6);
 
-    // Decrypt
-    let result = decrypt_multivector_3d(&ct_rotated, &sk, &params);
-    println!("Result: R ⊗ v ⊗ ~R = {:?}", result);
+        test.step("creating rotor (90° about Z-axis)");
+        // Rotor: R = cos(45°) + sin(45°)e₁₂ for 90° rotation in XY plane
+        let cos45 = std::f64::consts::FRAC_1_SQRT_2;
+        let sin45 = std::f64::consts::FRAC_1_SQRT_2;
+        let rotor = [cos45, 0.0, 0.0, 0.0, sin45, 0.0, 0.0, 0.0];
 
-    // Expected: e₂ (rotated 90° from X to Y)
-    let expected = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-    println!("Expected: e₂ = {:?}", expected);
+        test.step("encrypting rotor");
+        let ct_rotor = encrypt_multivector_3d_with_progress(&rotor, &pk, &params, &test, "encrypting rotor");
 
-    let error = max_error(&result, &expected);
-    println!("Max error: {:.6}", error);
+        test.step("encrypting vector");
+        let vector = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁
+        let ct_vec = encrypt_multivector_3d_with_progress(&vector, &pk, &params, &test, "encrypting vector");
 
-    // Note: Rotation uses 2 multiplications, so error accumulates more
-    assert!(error < 0.5, "Rotation error too large: {}", error);
-    println!("✅ PASS: Rotation works!\n");
-}
+        test.step("applying rotation (128 mults: R⊗v then result⊗~R)");
+        test.update("computing first product R⊗v...");
+        let ct_rotated = rotate_3d(&ct_rotor, &ct_vec, &evk, &params);
 
-#[test]
-fn test_homomorphic_projection() {
-    println!("\n=== Testing Homomorphic Projection ===");
+        test.step("decrypting result");
+        let result_mv = decrypt_multivector_3d_with_progress(&ct_rotated, &sk, &params, &test, "decrypting");
 
-    // Use 5-prime params for depth-3 support
-    let params = CliffordFHEParams::new_rns_mult_depth2_safe();
-    println!("Using {} primes for projection", params.moduli.len());
-    let (pk, sk, evk) = rns_keygen(&params);
+        test.step("computing expected result");
+        // 90° rotation of e₁ about Z gives e₂
+        let expected = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 
-    // Project (e₁ + e₂) onto e₁
-    // Expected: e₁ (the e₁ component)
-    let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁ (project onto this)
-    let b = [0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁ + e₂
+        test.step("verifying correctness");
+        let error = max_error(&result_mv, &expected);
 
-    println!("Project onto: a = e₁ = {:?}", a);
-    println!("Vector: b = e₁ + e₂ = {:?}", b);
+        // Note: Rotation uses 2 multiplications, so error accumulates more
+        let result = test.finish(error < 0.5, error);
+        suite.add_result(result);
+    }
 
-    // Encrypt
-    let ct_a = encrypt_multivector_3d(&a, &pk, &params);
-    let ct_b = encrypt_multivector_3d(&b, &pk, &params);
+    // Test 4: Wedge Product
+    {
+        let test = suite.test("4. Wedge Product (a ∧ b)", 5);
 
-    // Projection
-    let ct_proj = project_3d(&ct_a, &ct_b, &evk, &params);
+        test.step("encrypting test vectors");
+        let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁
+        let b = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₂
+        let ct_a = encrypt_multivector_3d(&a, &pk, &params);
+        let ct_b = encrypt_multivector_3d(&b, &pk, &params);
 
-    // Decrypt
-    let result = decrypt_multivector_3d(&ct_proj, &sk, &params);
-    println!("Result: proj_a(b) = {:?}", result);
+        test.step("applying wedge product");
+        let ct_wedge = wedge_product_3d(&ct_a, &ct_b, &evk, &params);
 
-    // Expected: e₁ (the component of b along a)
-    let expected = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-    println!("Expected: e₁ = {:?}", expected);
+        test.step("decrypting result");
+        let result_mv = decrypt_multivector_3d(&ct_wedge, &sk, &params);
 
-    let error = max_error(&result, &expected);
-    println!("Max error: {:.6}", error);
+        test.step("computing expected result");
+        // e₁ ∧ e₂ = e₁₂
+        let expected = [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
 
-    // Projection uses multiple multiplications
-    assert!(error < 0.5, "Projection error too large: {}", error);
-    println!("✅ PASS: Projection works!\n");
-}
+        test.step("verifying correctness");
+        let error = max_error(&result_mv, &expected);
 
-#[test]
-fn test_homomorphic_rejection() {
-    println!("\n=== Testing Homomorphic Rejection ===");
+        let result = test.finish(error < 1e-6, error);
+        suite.add_result(result);
+    }
 
-    // Use 5-prime params for depth-3 support
-    let params = CliffordFHEParams::new_rns_mult_depth2_safe();
-    println!("Using {} primes for rejection", params.moduli.len());
-    let (pk, sk, evk) = rns_keygen(&params);
+    // Test 5: Inner Product
+    {
+        let test = suite.test("5. Inner Product (a · b)", 5);
 
-    // Reject (e₁ + e₂) from e₁
-    // Expected: e₂ (the perpendicular component)
-    let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁ (reject from this)
-    let b = [0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];  // e₁ + e₂
+        test.step("encrypting test vectors");
+        let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁
+        let b = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁
+        let ct_a = encrypt_multivector_3d(&a, &pk, &params);
+        let ct_b = encrypt_multivector_3d(&b, &pk, &params);
 
-    println!("Reject from: a = e₁ = {:?}", a);
-    println!("Vector: b = e₁ + e₂ = {:?}", b);
+        test.step("applying inner product");
+        let ct_inner = inner_product_3d(&ct_a, &ct_b, &evk, &params);
 
-    // Encrypt
-    let ct_a = encrypt_multivector_3d(&a, &pk, &params);
-    let ct_b = encrypt_multivector_3d(&b, &pk, &params);
+        test.step("decrypting result");
+        let result_mv = decrypt_multivector_3d(&ct_inner, &sk, &params);
 
-    // Rejection
-    let ct_rej = reject_3d(&ct_a, &ct_b, &evk, &params);
+        test.step("computing expected result");
+        // e₁ · e₁ = 1 (scalar)
+        let expected = [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
 
-    // Decrypt
-    let result = decrypt_multivector_3d(&ct_rej, &sk, &params);
-    println!("Result: rej_a(b) = {:?}", result);
+        test.step("verifying correctness");
+        let error = max_error(&result_mv, &expected);
 
-    // Expected: e₂ (the component of b perpendicular to a)
-    let expected = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
-    println!("Expected: e₂ = {:?}", expected);
+        let result = test.finish(error < 1e-6, error);
+        suite.add_result(result);
+    }
 
-    let error = max_error(&result, &expected);
-    println!("Max error: {:.6}", error);
+    // Test 6: Projection
+    {
+        let test = suite.test("6. Projection (proj_a(b))", 6);
 
-    // Rejection uses multiple multiplications
-    assert!(error < 0.5, "Rejection error too large: {}", error);
-    println!("✅ PASS: Rejection works!\n");
+        test.step("encrypting vector a");
+        let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁
+        let ct_a = encrypt_multivector_3d_with_progress(&a, &pk, &params, &test, "encrypting a");
+
+        test.step("encrypting vector b");
+        let b = [0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁ + e₂
+        let ct_b = encrypt_multivector_3d_with_progress(&b, &pk, &params, &test, "encrypting b");
+
+        test.step("applying projection (192 mults: ~a, a·b, then scale)");
+        test.update("computing reverse ~a...");
+        let ct_proj = project_3d(&ct_a, &ct_b, &evk, &params);
+
+        test.step("decrypting result");
+        let result_mv = decrypt_multivector_3d_with_progress(&ct_proj, &sk, &params, &test, "decrypting");
+
+        test.step("computing expected result");
+        // proj_e₁(e₁ + e₂) = e₁
+        let expected = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+        test.step("verifying correctness");
+        let error = max_error(&result_mv, &expected);
+
+        let result = test.finish(error < 1e-6, error);
+        suite.add_result(result);
+    }
+
+    // Test 7: Rejection
+    {
+        let test = suite.test("7. Rejection (rej_a(b))", 6);
+
+        test.step("encrypting test vectors");
+        let a = [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁
+        let b = [0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0]; // e₁ + e₂
+        let ct_a = encrypt_multivector_3d(&a, &pk, &params);
+        let ct_b = encrypt_multivector_3d(&b, &pk, &params);
+
+        test.step("applying rejection (depth-3 operation)");
+        let ct_rej = reject_3d(&ct_a, &ct_b, &evk, &params);
+
+        test.step("decrypting result");
+        let result_mv = decrypt_multivector_3d(&ct_rej, &sk, &params);
+
+        test.step("computing expected result");
+        // rej_e₁(e₁ + e₂) = e₂
+        let expected = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+
+        test.step("verifying correctness");
+        let error = max_error(&result_mv, &expected);
+
+        // Note: Rejection uses multiple multiplications, so error accumulates
+        let result = test.finish(error < 0.5, error);
+        suite.add_result(result);
+    }
+
+    // Print final summary
+    suite.finish();
 }

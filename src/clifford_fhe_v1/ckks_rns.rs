@@ -437,20 +437,20 @@ pub fn rns_encrypt(pk: &RnsPublicKey, pt: &RnsPlaintext, params: &CliffordFHEPar
 
     // DEBUG: Trace encryption steps
     if std::env::var("RNS_TRACE").is_ok() {
-        eprintln!("\n[ENCRYPTION TRACE]");
-        eprintln!("  r (first 5 coeffs): {:?}", &r[..5]);
-        eprintln!("  r[0] residues: {:?}", &r_rns.rns_coeffs[0]);
-        eprintln!("  r[1] residues: {:?}", &r_rns.rns_coeffs[1]);
-        eprintln!("  r[63] residues: {:?}", &r_rns.rns_coeffs[63]);
-        eprintln!("  e0[0] residues: {:?}", &e0_rns.rns_coeffs[0]);
-        eprintln!("  e1[0] residues: {:?}", &e1_rns.rns_coeffs[0]);
-        eprintln!("  pt.coeffs[0] residues: {:?}", &pt.coeffs.rns_coeffs[0]);
-        eprintln!("  pk.b[0] residues: {:?}", &pk.b.rns_coeffs[0]);
-        eprintln!("  pk.b[1] residues: {:?}", &pk.b.rns_coeffs[1]);
-        eprintln!("  pk.b[63] residues: {:?}", &pk.b.rns_coeffs[63]);
-        eprintln!("  pk.a[0] residues: {:?}", &pk.a.rns_coeffs[0]);
-        eprintln!("  br[0] residues: {:?}", &br.rns_coeffs[0]);
-        eprintln!("  ar[0] residues: {:?}", &ar.rns_coeffs[0]);
+        // eprintln!("\n[ENCRYPTION TRACE]");
+        // eprintln!("  r (first 5 coeffs): {:?}", &r[..5]);
+        // eprintln!("  r[0] residues: {:?}", &r_rns.rns_coeffs[0]);
+        // eprintln!("  r[1] residues: {:?}", &r_rns.rns_coeffs[1]);
+        // eprintln!("  r[63] residues: {:?}", &r_rns.rns_coeffs[63]);
+        // eprintln!("  e0[0] residues: {:?}", &e0_rns.rns_coeffs[0]);
+        // eprintln!("  e1[0] residues: {:?}", &e1_rns.rns_coeffs[0]);
+        // eprintln!("  pt.coeffs[0] residues: {:?}", &pt.coeffs.rns_coeffs[0]);
+        // eprintln!("  pk.b[0] residues: {:?}", &pk.b.rns_coeffs[0]);
+        // eprintln!("  pk.b[1] residues: {:?}", &pk.b.rns_coeffs[1]);
+        // eprintln!("  pk.b[63] residues: {:?}", &pk.b.rns_coeffs[63]);
+        // eprintln!("  pk.a[0] residues: {:?}", &pk.a.rns_coeffs[0]);
+        // eprintln!("  br[0] residues: {:?}", &br.rns_coeffs[0]);
+        // eprintln!("  ar[0] residues: {:?}", &ar.rns_coeffs[0]);
     }
 
     // c0 = b*r + e0 + m
@@ -461,9 +461,9 @@ pub fn rns_encrypt(pk: &RnsPublicKey, pt: &RnsPlaintext, params: &CliffordFHEPar
     let c1 = rns_add(&ar, &e1_rns, primes);
 
     if std::env::var("RNS_TRACE").is_ok() {
-        eprintln!("  c0_temp[0] residues: {:?}", &c0_temp.rns_coeffs[0]);
-        eprintln!("  c0[0] residues: {:?}", &c0.rns_coeffs[0]);
-        eprintln!("  c1[0] residues: {:?}", &c1.rns_coeffs[0]);
+        // eprintln!("  c0_temp[0] residues: {:?}", &c0_temp.rns_coeffs[0]);
+        // eprintln!("  c0[0] residues: {:?}", &c0.rns_coeffs[0]);
+        // eprintln!("  c1[0] residues: {:?}", &c1.rns_coeffs[0]);
     }
 
     RnsCiphertext::new(c0, c1, 0, pt.scale)
@@ -505,16 +505,16 @@ pub fn rns_decrypt(sk: &RnsSecretKey, ct: &RnsCiphertext, params: &CliffordFHEPa
 
     // DEBUG: Trace decryption steps
     if std::env::var("RNS_TRACE").is_ok() {
-        eprintln!("\n[DECRYPTION TRACE]");
-        eprintln!("  ct.c0[0] residues: {:?}", &ct.c0.rns_coeffs[0]);
-        eprintln!("  ct.c0[1] residues: {:?}", &ct.c0.rns_coeffs[1]);
-        eprintln!("  ct.c0[2] residues: {:?}", &ct.c0.rns_coeffs[2]);
-        eprintln!("  ct.c1[0] residues: {:?}", &ct.c1.rns_coeffs[0]);
-        eprintln!("  ct.c1[1] residues: {:?}", &ct.c1.rns_coeffs[1]);
-        eprintln!("  ct.c1[2] residues: {:?}", &ct.c1.rns_coeffs[2]);
-        eprintln!("  sk[0] residues: {:?}", &sk_at_level.rns_coeffs[0]);
-        eprintln!("  sk[1] residues: {:?}", &sk_at_level.rns_coeffs[1]);
-        eprintln!("  sk[2] residues: {:?}", &sk_at_level.rns_coeffs[2]);
+        // eprintln!("\n[DECRYPTION TRACE]");
+        // eprintln!("  ct.c0[0] residues: {:?}", &ct.c0.rns_coeffs[0]);
+        // eprintln!("  ct.c0[1] residues: {:?}", &ct.c0.rns_coeffs[1]);
+        // eprintln!("  ct.c0[2] residues: {:?}", &ct.c0.rns_coeffs[2]);
+        // eprintln!("  ct.c1[0] residues: {:?}", &ct.c1.rns_coeffs[0]);
+        // eprintln!("  ct.c1[1] residues: {:?}", &ct.c1.rns_coeffs[1]);
+        // eprintln!("  ct.c1[2] residues: {:?}", &ct.c1.rns_coeffs[2]);
+        // eprintln!("  sk[0] residues: {:?}", &sk_at_level.rns_coeffs[0]);
+        // eprintln!("  sk[1] residues: {:?}", &sk_at_level.rns_coeffs[1]);
+        // eprintln!("  sk[2] residues: {:?}", &sk_at_level.rns_coeffs[2]);
 
         // CRT consistency check for inputs
         let check_crt = |name: &str, residues: &[i64], primes: &[i64]| {
@@ -526,10 +526,10 @@ pub fn rns_decrypt(sk: &RnsSecretKey, ct: &RnsCiphertext, params: &CliffordFHEPa
 
                 // Check if they represent the same value by checking (r0 - r1) % gcd(p,q) == 0
                 // Since p, q are coprime, gcd = 1, so we check via CRT
-                eprintln!("  {} CRT check: r0={}, r1={}", name, r0, r1);
-                eprintln!("    r0 mod q = {}, should equal r1 = {}", r0 % q, r1);
+                // eprintln!("  {} CRT check: r0={}, r1={}", name, r0, r1);
+                // eprintln!("    r0 mod q = {}, should equal r1 = {}", r0 % q, r1);
                 if r0 % q != r1 {
-                    eprintln!("    ⚠️  WARNING: {} residues are INCONSISTENT!", name);
+                    // eprintln!("    ⚠️  WARNING: {} residues are INCONSISTENT!", name);
                 }
             }
         };
@@ -538,7 +538,7 @@ pub fn rns_decrypt(sk: &RnsSecretKey, ct: &RnsCiphertext, params: &CliffordFHEPa
         check_crt("ct.c1[0]", &ct.c1.rns_coeffs[0], active_primes);
         check_crt("sk[0]", &sk_at_level.rns_coeffs[0], active_primes);
 
-        eprintln!("  c1s[0] residues: {:?}", &c1s.rns_coeffs[0]);
+        // eprintln!("  c1s[0] residues: {:?}", &c1s.rns_coeffs[0]);
         check_crt("c1s[0]", &c1s.rns_coeffs[0], active_primes);
     }
 
@@ -550,17 +550,17 @@ pub fn rns_decrypt(sk: &RnsSecretKey, ct: &RnsCiphertext, params: &CliffordFHEPa
     let m_prime = rns_add(&ct.c0, &c1s, active_primes);
 
     if std::env::var("RNS_TRACE").is_ok() {
-        eprintln!("  m_prime[0] residues: {:?}", &m_prime.rns_coeffs[0]);
+        // eprintln!("  m_prime[0] residues: {:?}", &m_prime.rns_coeffs[0]);
         // Only do CRT check if we have 2+ residues
         if num_primes >= 2 {
             let r0 = m_prime.rns_coeffs[0][0] as i128;
             let r1 = m_prime.rns_coeffs[0][1] as i128;
             let p = active_primes[0] as i128;
             let q = active_primes[1] as i128;
-            eprintln!("  m_prime CRT check: r0={}, r1={}", r0, r1);
-            eprintln!("    r0 mod q = {}, should equal r1 = {}", r0 % q, r1);
+            // eprintln!("  m_prime CRT check: r0={}, r1={}", r0, r1);
+            // eprintln!("    r0 mod q = {}, should equal r1 = {}", r0 % q, r1);
             if r0 % q != r1 {
-                eprintln!("    ⚠️  WARNING: m_prime residues are INCONSISTENT!");
+                // eprintln!("    ⚠️  WARNING: m_prime residues are INCONSISTENT!");
             }
         }
     }
@@ -621,11 +621,11 @@ pub fn rns_multiply_ciphertexts(
     let num_primes = primes.len() - ct1.level;
     let active_primes = &primes[..num_primes];
 
-    eprintln!("\n[INPUT CIPHERTEXTS]");
-    eprintln!("  ct1.c0[0] residues: {:?}", &ct1.c0.rns_coeffs[0][..ct1.c0.num_primes().min(3)]);
-    eprintln!("  ct2.c0[0] residues: {:?}", &ct2.c0.rns_coeffs[0][..ct2.c0.num_primes().min(3)]);
-    eprintln!("  Expected ct1.c0[0] ≈ 2Δ ≈ {:.2e}", 2.0 * params.scale);
-    eprintln!("  Expected ct2.c0[0] ≈ 3Δ ≈ {:.2e}", 3.0 * params.scale);
+    // eprintln!("\n[INPUT CIPHERTEXTS]");
+    // eprintln!("  ct1.c0[0] residues: {:?}", &ct1.c0.rns_coeffs[0][..ct1.c0.num_primes().min(3)]);
+    // eprintln!("  ct2.c0[0] residues: {:?}", &ct2.c0.rns_coeffs[0][..ct2.c0.num_primes().min(3)]);
+    // eprintln!("  Expected ct1.c0[0] ≈ 2Δ ≈ {:.2e}", 2.0 * params.scale);
+    // eprintln!("  Expected ct2.c0[0] ≈ 3Δ ≈ {:.2e}", 3.0 * params.scale);
 
     // Step 1: Multiply ciphertexts (tensored product)
     // Degree-2 ciphertext: (d0, d1, d2) where m1 * m2 = d0 + d1*s + d2*s²
@@ -634,9 +634,9 @@ pub fn rns_multiply_ciphertexts(
     let c1d0 = rns_poly_multiply(&ct1.c1, &ct2.c0, active_primes, polynomial_multiply_ntt);
     let c1d1 = rns_poly_multiply(&ct1.c1, &ct2.c1, active_primes, polynomial_multiply_ntt);
 
-    eprintln!("\n[AFTER TENSOR PRODUCT]");
-    eprintln!("  c0d0[0] residues: {:?}", &c0d0.rns_coeffs[0][..c0d0.num_primes().min(3)]);
-    eprintln!("  c1d1[0] (=d2) residues: {:?}", &c1d1.rns_coeffs[0][..c1d1.num_primes().min(3)]);
+    // eprintln!("\n[AFTER TENSOR PRODUCT]");
+    // eprintln!("  c0d0[0] residues: {:?}", &c0d0.rns_coeffs[0][..c0d0.num_primes().min(3)]);
+    // eprintln!("  c1d1[0] (=d2) residues: {:?}", &c1d1.rns_coeffs[0][..c1d1.num_primes().min(3)]);
 
     // d1 = c0*d1 + c1*d0
     let d_mid = rns_add(&c0d1, &c1d0, active_primes);
@@ -645,20 +645,20 @@ pub fn rns_multiply_ciphertexts(
     let (new_c0, new_c1) = rns_relinearize_degree2(&c0d0, &d_mid, &c1d1, evk, active_primes, n);
 
     // DEBUG: Check values BEFORE rescale
-    // eprintln!("\n[BEFORE RESCALE] Values before rescaling:");
-    // eprintln!("  new_c0[0] residues:");
+    // // eprintln!("\n[BEFORE RESCALE] Values before rescaling:");
+    // // eprintln!("  new_c0[0] residues:");
     for j in 0..new_c0.num_primes().min(3) {
         let qi = active_primes[j];
         let r = new_c0.rns_coeffs[0][j];
         let centered = if r > qi / 2 { r - qi } else { r };
-        eprintln!("    j={} r={} centered={}", j, r, centered);
+        // eprintln!("    j={} r={} centered={}", j, r, centered);
     }
-    // eprintln!("  new_c1[0] residues:");
+    // // eprintln!("  new_c1[0] residues:");
     for j in 0..new_c1.num_primes().min(3) {
         let qi = active_primes[j];
         let r = new_c1.rns_coeffs[0][j];
         let centered = if r > qi / 2 { r - qi } else { r };
-        eprintln!("    j={} r={} centered={}", j, r, centered);
+        // eprintln!("    j={} r={} centered={}", j, r, centered);
     }
 
     // Step 3: Exact rescaling with proper rounding
@@ -691,28 +691,28 @@ pub fn rns_multiply_ciphertexts(
             let rhs = pre.rns_coeffs[idx][j] % qi;
 
             if lhs != rhs {
-                eprintln!(
-                    "[DIVROUND CHECK FAIL] coeff {}, prime j={} (qi={}): LHS={} != RHS={}",
-                    idx, j, qi, lhs, rhs
-                );
-                eprintln!("  c_l_center={}, post[{}][{}]={}, pre[{}][{}]={}",
-                    c_l_center, idx, j, post.rns_coeffs[idx][j], idx, j, pre.rns_coeffs[idx][j]);
+                // eprintln!(
+                //     "[DIVROUND CHECK FAIL] coeff {}, prime j={} (qi={}): LHS={} != RHS={}",
+                //     idx, j, qi, lhs, rhs
+                // );
+                // eprintln!("  c_l_center={}, post[{}][{}]={}, pre[{}][{}]={}",
+                //     c_l_center, idx, j, post.rns_coeffs[idx][j], idx, j, pre.rns_coeffs[idx][j]);
             }
         }
     }
 
     // PROBE B: Residue magnitude sanity check
     fn dump_residues(name: &str, poly: &RnsPolynomial, primes: &[i64], idx: usize) {
-        eprintln!("{} coeff[{}] residues:", name, idx);
+        // eprintln!("{} coeff[{}] residues:", name, idx);
         for j in 0..poly.num_primes() {
             let qi = primes[j];
             let r = poly.rns_coeffs[idx][j];
             let centered = if r > qi / 2 { r - qi } else { r };
-            eprintln!("  j={}  r={}  centered={}", j, r, centered);
+            // eprintln!("  j={}  r={}  centered={}", j, r, centered);
         }
     }
 
-    // eprintln!("\n[RESCALE VERIFICATION]");
+    // // eprintln!("\n[RESCALE VERIFICATION]");
     verify_divide_round_by_lastq(&new_c0, &rescaled_c0, active_primes, 0);
     verify_divide_round_by_lastq(&new_c1, &rescaled_c1, active_primes, 0);
 
@@ -748,12 +748,12 @@ fn rns_relinearize_degree2(
     // 1) Decompose d2 into D digits in base B = 2^w
     let d2_digits = decompose_base_pow2(d2, primes, evk.base_w);
 
-    // eprintln!("[RELINEARIZATION DEBUG]");
-    // eprintln!("  d2[0] residues: {:?}", &d2.rns_coeffs[0][..d2.num_primes().min(3)]);
-    // eprintln!("  base_w: {}, num_digits: {}", evk.base_w, d2_digits.len());
-    for t in 0..d2_digits.len() {
-        eprintln!("  digit[{}][0] residues: {:?}", t, &d2_digits[t].rns_coeffs[0][..d2_digits[t].num_primes().min(3)]);
-    }
+    // // eprintln!("[RELINEARIZATION DEBUG]");
+    // // eprintln!("  d2[0] residues: {:?}", &d2.rns_coeffs[0][..d2.num_primes().min(3)]);
+    // // eprintln!("  base_w: {}, num_digits: {}", evk.base_w, d2_digits.len());
+    // for t in 0..d2_digits.len() {
+    //     // eprintln!("  digit[{}][0] residues: {:?}", t, &d2_digits[t].rns_coeffs[0][..d2_digits[t].num_primes().min(3)]);
+    // }
 
     // 2) TEST: Try with subtraction for c1
     // If EVK satisfies: evk0[t] - evk1[t]·s = -B^t·s² + e_t
@@ -797,8 +797,8 @@ fn rns_relinearize_degree2(
         let u0 = rns_poly_multiply(&d2_digits[t], &evk0_matched, primes, polynomial_multiply_ntt);
         let u1 = rns_poly_multiply(&d2_digits[t], &evk1_matched, primes, polynomial_multiply_ntt);
 
-        eprintln!("  After mult with evk[{}]: u0[0]={:?}, u1[0]={:?}",
-                  t, &u0.rns_coeffs[0][..u0.num_primes().min(3)], &u1.rns_coeffs[0][..u1.num_primes().min(3)]);
+        // eprintln!("  After mult with evk[{}]: u0[0]={:?}, u1[0]={:?}",
+        //           t, &u0.rns_coeffs[0][..u0.num_primes().min(3)], &u1.rns_coeffs[0][..u1.num_primes().min(3)]);
 
         // Accumulate: SUBTRACT u0 from c0, ADD u1 to c1
         c0 = rns_sub(&c0, &u0, primes);  // TEST: subtract instead of add

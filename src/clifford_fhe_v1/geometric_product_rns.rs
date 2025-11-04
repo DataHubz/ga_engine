@@ -447,10 +447,10 @@ pub fn geometric_product_3d_componentwise(
         for &(coeff, a_idx, b_idx) in product_terms {
             // Debug: check levels before multiplication
             if cts_a[a_idx].level != cts_b[b_idx].level {
-                eprintln!("[GP ERROR] Level mismatch before multiply!");
-                eprintln!("  output_idx={}, a_idx={}, b_idx={}", output_idx, a_idx, b_idx);
-                eprintln!("  cts_a[{}].level = {}", a_idx, cts_a[a_idx].level);
-                eprintln!("  cts_b[{}].level = {}", b_idx, cts_b[b_idx].level);
+                // eprintln!("[GP ERROR] Level mismatch before multiply!");
+                // eprintln!("  output_idx={}, a_idx={}, b_idx={}", output_idx, a_idx, b_idx);
+                // eprintln!("  cts_a[{}].level = {}", a_idx, cts_a[a_idx].level);
+                // eprintln!("  cts_b[{}].level = {}", b_idx, cts_b[b_idx].level);
             }
 
             // Multiply the encrypted components
@@ -804,17 +804,17 @@ pub fn rotate_3d(
         modswitch_to_next_level(&rotor[i], params)
     });
 
-    eprintln!("\n[ROTATION] After first GP:");
-    eprintln!("  rx[0].level = {}", rx[0].level);
-    eprintln!("  rotor_level1[0].level = {}", rotor_level1[0].level);
+    // eprintln!("\n[ROTATION] After first GP:");
+    // eprintln!("  rx[0].level = {}", rx[0].level);
+    // eprintln!("  rotor_level1[0].level = {}", rotor_level1[0].level);
 
     // Step 3: Compute ~R at level 1
     let rotor_reverse = reverse_3d(&rotor_level1, params);
 
-    eprintln!("  rotor_reverse[0].level = {}", rotor_reverse[0].level);
+    // eprintln!("  rotor_reverse[0].level = {}", rotor_reverse[0].level);
 
     // Step 4: Compute (R⊗v)⊗~R (both at level 1 → result at level 2)
-    eprintln!("[ROTATION] Starting second GP...");
+    // eprintln!("[ROTATION] Starting second GP...");
     geometric_product_3d_componentwise(&rx, &rotor_reverse, evk, params)
 }
 

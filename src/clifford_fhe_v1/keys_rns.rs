@@ -112,10 +112,10 @@ pub fn rns_keygen(params: &CliffordFHEParams) -> (RnsPublicKey, RnsSecretKey, Rn
 
     // DEBUG: Check inputs to multiplication
     if std::env::var("RNS_TRACE").is_ok() && num_primes == 2 {
-        eprintln!("[KEYGEN] a[0] residues: [{}, {}]", a_rns.rns_coeffs[0][0], a_rns.rns_coeffs[0][1]);
-        eprintln!("[KEYGEN] a[1] residues: [{}, {}]", a_rns.rns_coeffs[1][0], a_rns.rns_coeffs[1][1]);
-        eprintln!("[KEYGEN] s[0] residues: [{}, {}]", s_rns.rns_coeffs[0][0], s_rns.rns_coeffs[0][1]);
-        eprintln!("[KEYGEN] s[1] residues: [{}, {}]", s_rns.rns_coeffs[1][0], s_rns.rns_coeffs[1][1]);
+        // eprintln!("[KEYGEN] a[0] residues: [{}, {}]", a_rns.rns_coeffs[0][0], a_rns.rns_coeffs[0][1]);
+        // eprintln!("[KEYGEN] a[1] residues: [{}, {}]", a_rns.rns_coeffs[1][0], a_rns.rns_coeffs[1][1]);
+        // eprintln!("[KEYGEN] s[0] residues: [{}, {}]", s_rns.rns_coeffs[0][0], s_rns.rns_coeffs[0][1]);
+        // eprintln!("[KEYGEN] s[1] residues: [{}, {}]", s_rns.rns_coeffs[1][0], s_rns.rns_coeffs[1][1]);
     }
 
     let a_times_s = rns_poly_multiply(&a_rns, &s_rns, primes, polynomial_multiply_ntt);
@@ -124,7 +124,7 @@ pub fn rns_keygen(params: &CliffordFHEParams) -> (RnsPublicKey, RnsSecretKey, Rn
     if std::env::var("RNS_TRACE").is_ok() && num_primes == 2 {
         let r0 = a_times_s.rns_coeffs[0][0];
         let r1 = a_times_s.rns_coeffs[0][1];
-        eprintln!("[KEYGEN] a*s[0] residues: [{}, {}], diff={}", r0, r1, (r0 as i128 - r1 as i128).abs());
+        // eprintln!("[KEYGEN] a*s[0] residues: [{}, {}], diff={}", r0, r1, (r0 as i128 - r1 as i128).abs());
     }
 
     // Negate a·s to get -a·s (required for CKKS public key)
@@ -150,8 +150,8 @@ pub fn rns_keygen(params: &CliffordFHEParams) -> (RnsPublicKey, RnsSecretKey, Rn
     if std::env::var("RNS_TRACE").is_ok() && num_primes == 2 {
         let r0 = neg_a_times_s.rns_coeffs[0][0];
         let r1 = neg_a_times_s.rns_coeffs[0][1];
-        eprintln!("[KEYGEN] -a*s[0] residues: [{}, {}], diff={}", r0, r1, (r0 as i128 - r1 as i128).abs());
-        eprintln!("[KEYGEN] e[0] residues: [{}, {}]", e_rns.rns_coeffs[0][0], e_rns.rns_coeffs[0][1]);
+        // eprintln!("[KEYGEN] -a*s[0] residues: [{}, {}], diff={}", r0, r1, (r0 as i128 - r1 as i128).abs());
+        // eprintln!("[KEYGEN] e[0] residues: [{}, {}]", e_rns.rns_coeffs[0][0], e_rns.rns_coeffs[0][1]);
     }
 
     // b = -a·s + e
@@ -161,7 +161,7 @@ pub fn rns_keygen(params: &CliffordFHEParams) -> (RnsPublicKey, RnsSecretKey, Rn
     if std::env::var("RNS_TRACE").is_ok() && num_primes == 2 {
         let r0 = b_rns.rns_coeffs[0][0];
         let r1 = b_rns.rns_coeffs[0][1];
-        eprintln!("[KEYGEN] b[0] residues: [{}, {}], diff={}", r0, r1, (r0 as i128 - r1 as i128).abs());
+        // eprintln!("[KEYGEN] b[0] residues: [{}, {}], diff={}", r0, r1, (r0 as i128 - r1 as i128).abs());
     }
 
     // 5. Create public key
@@ -214,8 +214,8 @@ fn generate_rns_evaluation_key(
     let q_bits: u32 = q_prod.bits() as u32;
     let d: usize = ((q_bits + w - 1) / w) as usize;
 
-    eprintln!("[EVK GEN] num_primes={}, total_bits={}, w={}, num_digits={}",
-              num_primes, q_bits, w, d);
+    // eprintln!("[EVK GEN] num_primes={}, total_bits={}, w={}, num_digits={}",
+    //           num_primes, q_bits, w, d);
 
     // Use NTT-based polynomial multiplication (imported from ckks_rns module)
     use crate::clifford_fhe_v1::ckks_rns::polynomial_multiply_ntt;

@@ -46,6 +46,9 @@ num-traits = "0.2"  # For Zero/One traits used with BigInt
 criterion      = { version = "0.4", features = ["html_reports"] }
 matrixmultiply = "0.3"
 nalgebra       = "0.32"
+indicatif      = "0.17"  # Progress bars and spinners
+colored        = "2.0"   # Terminal colors
+unicode-width  = "0.1"   # Better text formatting
 
 [profile.release]
 opt-level = 3
