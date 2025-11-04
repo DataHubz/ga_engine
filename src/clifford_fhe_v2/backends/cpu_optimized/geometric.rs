@@ -1,17 +1,19 @@
-//! V2 Geometric Operations with NTT Optimization
+//! V2 Geometric Operations with NTT Optimization + Rayon Parallelization
 //!
 //! **Optimizations over V1:**
 //! - Uses NTT for O(n log n) ciphertext multiplication
+//! - Rayon parallelization across output components (8-way parallel)
+//! - Rayon parallelization within each component (term-level parallel)
 //! - Optimized component-wise operations
 //! - Precomputed structure constants
 //!
-//! **Performance Target:** 10-20× faster geometric operations vs V1
+//! **Performance Target:** 30-50× faster geometric operations vs V1
 //!
 //! **Status:**
 //! - ✅ Structure constants (Cl3StructureConstants)
 //! - ✅ Basic operations: reverse, add, sub, scalar mul
 //! - ✅ Ciphertext multiplication (with NTT-based relinearization)
-//! - ✅ Geometric product (using structure constants + multiplication)
+//! - ✅ Geometric product (parallel, using structure constants + multiplication)
 //! - ✅ Wedge product (antisymmetric part)
 //! - ✅ Inner product (symmetric part)
 //! - ✅ Rotation (R ⊗ v ⊗ R̃)
@@ -23,6 +25,7 @@ use crate::clifford_fhe_v2::backends::cpu_optimized::keys::{EvaluationKey, KeyCo
 use crate::clifford_fhe_v2::backends::cpu_optimized::multiplication::multiply_ciphertexts;
 use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
 use crate::clifford_fhe_v2::params::CliffordFHEParams;
+use rayon::prelude::*;
 
 /// Multivector ciphertext in Cl(3,0) - 8 encrypted components
 ///
@@ -281,14 +284,19 @@ impl GeometricContext {
         ]
     }
 
-    /// Geometric product: a ⊗ b
+    /// Geometric product: a ⊗ b (PARALLEL VERSION using Rayon)
     ///
     /// **Algorithm:**
-    /// 1. For each output component k, use structure constants to find
+    /// 1. For each output component k (in parallel), use structure constants to find
     ///    all (coeff, i, j) tuples where a[i] * b[j] contributes to result[k]
-    /// 2. Multiply ciphertexts: ct_ij = multiply_ciphertexts(a[i], b[j], evk)
+    /// 2. Multiply ciphertexts (in parallel): ct_ij = multiply_ciphertexts(a[i], b[j], evk)
     /// 3. Apply coefficient: ct_ij * coeff (handle sign with negation if needed)
     /// 4. Accumulate all contributions to result[k]
+    ///
+    /// **Parallelization:** Uses Rayon to parallelize both:
+    /// - Across 8 output components (8-way parallelism)
+    /// - Within each component's 8 terms (64-way total parallelism)
+    /// Expected 6-8× speedup on 8-core CPU.
     ///
     /// **Complexity:** O(8² × n log n) ≈ O(n log n) for 8 components
     ///
@@ -307,49 +315,55 @@ impl GeometricContext {
     ) -> MultivectorCiphertext {
         let constants = Cl3StructureConstants::new();
 
-        // Initialize result components as zero ciphertexts
-        let mut result: Vec<Option<Ciphertext>> = vec![None; 8];
+        // Parallel computation: process all 8 output components in parallel
+        let result: Vec<Ciphertext> = (0..8)
+            .into_par_iter()
+            .map(|out_idx| {
+                let product_terms = &constants.products[out_idx];
 
-        // For each output component
-        for (out_idx, product_terms) in constants.products.iter().enumerate() {
-            // For each (coefficient, a_idx, b_idx) that contributes to this component
-            for &(coeff, a_idx, b_idx) in product_terms {
-                // Multiply the two ciphertext components
-                let ct_product = multiply_ciphertexts(
-                    &a[a_idx],
-                    &b[b_idx],
-                    evk,
-                    &self.key_ctx,
-                );
+                // Parallel computation of all terms for this component
+                let terms: Vec<Ciphertext> = product_terms
+                    .par_iter()
+                    .map(|&(coeff, a_idx, b_idx)| {
+                        // Multiply the two ciphertext components
+                        let ct_product = multiply_ciphertexts(
+                            &a[a_idx],
+                            &b[b_idx],
+                            evk,
+                            &self.key_ctx,
+                        );
 
-                // Apply coefficient (either +1 or -1 for Cl(3,0))
-                let ct_term = if coeff == 1 {
-                    ct_product
-                } else {
-                    // coeff == -1: negate the ciphertext
-                    // Use moduli from the product ciphertext (which has updated RNS moduli)
-                    let ct_moduli = &ct_product.c0[0].moduli;
-                    self.negate_ciphertext(&ct_product, ct_moduli)
-                };
+                        // Apply coefficient (either +1 or -1 for Cl(3,0))
+                        if coeff == 1 {
+                            ct_product
+                        } else {
+                            // coeff == -1: negate the ciphertext
+                            let ct_moduli = &ct_product.c0[0].moduli;
+                            self.negate_ciphertext(&ct_product, ct_moduli)
+                        }
+                    })
+                    .collect();
 
-                // Accumulate into result component
-                result[out_idx] = match &result[out_idx] {
-                    None => Some(ct_term),
-                    Some(accumulated) => Some(self.add_ciphertexts(accumulated, &ct_term)),
-                };
-            }
-        }
+                // Accumulate all terms for this component
+                // Start with the first term, then add the rest
+                let mut accumulated = terms[0].clone();
+                for term in &terms[1..] {
+                    accumulated = self.add_ciphertexts(&accumulated, term);
+                }
+                accumulated
+            })
+            .collect();
 
-        // Convert Option<Ciphertext> to Ciphertext (all should be Some at this point)
+        // Convert Vec<Ciphertext> to [Ciphertext; 8]
         [
-            result[0].clone().expect("Component 0 should be initialized"),
-            result[1].clone().expect("Component 1 should be initialized"),
-            result[2].clone().expect("Component 2 should be initialized"),
-            result[3].clone().expect("Component 3 should be initialized"),
-            result[4].clone().expect("Component 4 should be initialized"),
-            result[5].clone().expect("Component 5 should be initialized"),
-            result[6].clone().expect("Component 6 should be initialized"),
-            result[7].clone().expect("Component 7 should be initialized"),
+            result[0].clone(),
+            result[1].clone(),
+            result[2].clone(),
+            result[3].clone(),
+            result[4].clone(),
+            result[5].clone(),
+            result[6].clone(),
+            result[7].clone(),
         ]
     }
 

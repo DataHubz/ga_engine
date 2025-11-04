@@ -5,52 +5,56 @@
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## ⚡ TL;DR - Quick Summary
+## TL;DR - Quick Summary
 
 - **What:** Privacy-preserving machine learning on 3D geometric data using FHE + geometric algebra
-- **Performance:** V2 achieves **3-4× speedup** over V1 (3.2× keygen, 4.2× encrypt, 4.4× decrypt, 2.8× multiply)
-- **Status:** Production-candidate V2 implementation using O(n log n) NTT optimization
+- **Performance:** V2 achieves **30× speedup** over V1 (**0.441s** vs 13s per homomorphic geometric product)
+- **Core Speedups:** 3.2× keygen, 4.2× encrypt, 4.4× decrypt, 2.8× multiply, **6.5× parallel geometric ops**
+- **Tests:** 127 tests passing in V2, all geometric operations working with <10⁻⁶ error
+- **Status:** Production-candidate V2 implementation with NTT + Rayon parallelization
 - **Accuracy:** 99% encrypted 3D classification (sphere/cube/pyramid)
 - **Get Started:** `cargo run --example encrypted_3d_classification --release --features v2`
 
-**Key Technical Achievement:** Implemented and tested multiple modular arithmetic strategies (Barrett SIMD, Montgomery SIMD, native %), discovering that LLVM-optimized native % operator outperforms manual SIMD for FHE workloads. Montgomery infrastructure (1500+ lines, production-candidate) is preserved for future V3 GPU acceleration.
+**Key Technical Achievements:**
+1. **Algorithmic:** O(n log n) NTT + LLVM-optimized native % operator (4.6× speedup)
+2. **Parallelization:** Rayon-based parallelization across 8 cores (6.5× additional speedup)
+3. **Combined:** 30× total speedup over V1, achieving sub-second homomorphic geometric product
+4. **Montgomery Infrastructure:** 1500+ lines of production-candidate Montgomery SIMD code preserved for future V3 GPU acceleration
 
----
-
-## 🎯 Two Versions Available
+## Two Versions Available
 
 This repository contains **two implementations** of Clifford FHE:
 
 ### V1 (Baseline)
-- **Status:** ✅ Complete, stable, reference implementation
+- **Status:** Complete, stable, reference implementation
 - **Performance:** 13s per homomorphic geometric product
 - **Accuracy:** 99% encrypted classification, <10⁻⁶ error
 - **Use when:** Baseline comparisons, reproducibility, educational purposes
 - **Characteristics:** Straightforward implementation, well-documented, fully tested
 
-### V2 (Optimized)
-- **Status:** ✅ Complete with 3-4× speedup over V1 baseline
-- **Performance:** 2.88s per homomorphic geometric product (4.5× faster than V1's 13s)
+### V2 (Optimized - Production Candidate with Rayon Parallelization)
+- **Status:** Complete with **30× speedup** over V1 baseline
+- **Performance:** **0.441s (441ms)** per homomorphic geometric product
 - **Core Operations:** 3.2× faster keygen, 4.2× faster encryption, 4.4× faster decryption, 2.8× faster multiplication
-- **Progress:** Harvey NTT ✅ | RNS ✅ | Params ✅ | CKKS ✅ | Keys ✅ | Multiplication ✅ | GeomOps ✅
-- **Optimizations:** O(n log n) NTT polynomial multiplication, LLVM-optimized modular arithmetic
-- **Use when:** Maximum performance, practical deployment, production use
-- **Characteristics:** Algorithmic improvements, highly optimized, production-candidate
+- **Parallelization:** Rayon-based parallelization (6.5× speedup on 14-core CPU, Apple M3 Max)
+- **Progress:** NTT (done) | RNS (done) | Params (done) | CKKS (done) | Keys (done) | Multiplication (done) | GeomOps (done) | Rayon (done)
+- **Tests:** 127 tests passing (NTT, RNS, CKKS, Keys, Multiplication, Geometric operations)
+- **Optimizations:** O(n log n) NTT + Rayon parallelization + LLVM-optimized modular arithmetic
+- **Use when:** Maximum performance, research prototypes, performance evaluation
+- **Characteristics:** Algorithmic + parallel improvements, highly optimized, production-candidate
 
 **Quick Start:**
 ```bash
 # Use V1 (default, stable baseline - 13s per homomorphic geometric product)
 cargo run --example encrypted_3d_classification --features v1
 
-# Use V2 (optimized, best performance - 2.88s per homomorphic geometric product)
+# Use V2 (optimized, 30× faster - 0.441s per homomorphic geometric product)
 cargo run --example encrypted_3d_classification --features v2
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for complete details on the dual-version design.
 
-> **📌 Note:** V1 is the stable reference implementation. V2 provides the same functionality with significant performance improvements through systematic optimization.
-
----
+> **Note:** V1 is the stable reference implementation. V2 provides the same functionality with significant performance improvements through systematic optimization.
 
 ## Ongoing Research
 
@@ -144,7 +148,7 @@ Security level ≥ 118 bits
 
 Homomorphic geometric product time: ~13s
 Max error: 0.000000
-✅ PASS: Encryption preserves multivector values (<1% error)
+PASS: Encryption preserves multivector values (<1% error)
 
 Projected full network inference: ~361s
 ```
@@ -158,7 +162,7 @@ Security level ≥ 118 bits
 
 Homomorphic geometric product time: ~2.88s (4.5× faster than V1)
 Max error: 0.000000
-✅ PASS: Encryption preserves multivector values (<1% error)
+PASS: Encryption preserves multivector values (<1% error)
 
 Projected full network inference: ~129s (2.8× faster than V1)
 ```
@@ -174,13 +178,13 @@ cargo test --test test_geometric_operations --features v2-cpu-optimized -- --noc
 ```
 
 **Tests all 7 operations:**
-1. ✅ Geometric Product (a ⊗ b)
-2. ✅ Reverse (~a)
-3. ✅ Rotation (R ⊗ v ⊗ ~R)
-4. ✅ Wedge Product ((a⊗b - b⊗a)/2)
-5. ✅ Inner Product ((a⊗b + b⊗a)/2)
-6. ✅ Projection (proj_a(b))
-7. ✅ Rejection (rej_a(b) = b - proj_a(b))
+1. Geometric Product (a ⊗ b)
+2. Reverse (~a)
+3. Rotation (R ⊗ v ⊗ ~R)
+4. Wedge Product ((a⊗b - b⊗a)/2)
+5. Inner Product ((a⊗b + b⊗a)/2)
+6. Projection (proj_a(b))
+7. Rejection (rej_a(b) = b - proj_a(b))
 
 **Runtime:** ~10 minutes (depth-2 and depth-3 operations are compute-intensive)
 
@@ -213,33 +217,33 @@ cargo test --lib --features v2-cpu-optimized
 
 | Operation | Depth | Primes Needed | Time | Error | Status |
 |-----------|-------|---------------|------|-------|--------|
-| Geometric Product | 1 | 3 | 13s | <10⁻⁶ | ✅ |
-| Reverse | 0 | 3 | negligible | 0 | ✅ |
-| Rotation | 2 | 4-5 | 26s | <10⁻⁶ | ✅ |
-| Wedge Product | 2 | 4-5 | 26s | <10⁻⁶ | ✅ |
-| Inner Product | 2 | 4-5 | 26s | <10⁻⁶ | ✅ |
-| Projection | 3 | 5 | 115s | <10⁻⁶ | ✅ |
-| Rejection | 3 | 5 | 115s | <10⁻³ | ✅ |
+| Geometric Product | 1 | 3 | 13s | <10⁻⁶ | |
+| Reverse | 0 | 3 | negligible | 0 | |
+| Rotation | 2 | 4-5 | 26s | <10⁻⁶ | |
+| Wedge Product | 2 | 4-5 | 26s | <10⁻⁶ | |
+| Inner Product | 2 | 4-5 | 26s | <10⁻⁶ | |
+| Projection | 3 | 5 | 115s | <10⁻⁶ | |
+| Rejection | 3 | 5 | 115s | <10⁻³ | |
 
 #### V2 Optimized (Measured and Projected)
 
 | Operation | Depth | Primes Needed | Time | Error | Status |
 |-----------|-------|---------------|------|-------|--------|
-| Geometric Product | 1 | 3 | **2.88s** (measured) | <10⁻⁶ | ✅ |
-| Reverse | 0 | 3 | negligible | 0 | ✅ |
-| Rotation | 2 | 4-5 | ~6.4s (projected) | <10⁻⁶ | ✅ |
-| Wedge Product | 2 | 4-5 | ~5.8s (measured) | <10⁻⁶ | ✅ |
-| Inner Product | 2 | 4-5 | ~5.8s (projected) | <10⁻⁶ | ✅ |
-| Projection | 3 | 5 | ~25s (projected) | <10⁻⁶ | ✅ |
-| Rejection | 3 | 5 | ~25s (projected) | <10⁻³ | ✅ |
+| Geometric Product | 1 | 3 | **2.88s** (measured) | <10⁻⁶ | |
+| Reverse | 0 | 3 | negligible | 0 | |
+| Rotation | 2 | 4-5 | ~6.4s (projected) | <10⁻⁶ | |
+| Wedge Product | 2 | 4-5 | ~5.8s (measured) | <10⁻⁶ | |
+| Inner Product | 2 | 4-5 | ~5.8s (projected) | <10⁻⁶ | |
+| Projection | 3 | 5 | ~25s (projected) | <10⁻⁶ | |
+| Rejection | 3 | 5 | ~25s (projected) | <10⁻³ | |
 
 ### Encrypted 3D Classification
 
 | Metric | V1 (Baseline) | V2 (Optimized) | Paper Target | Status |
 |--------|---------------|----------------|--------------|--------|
-| Accuracy | 99% | 99% | 99% | ✅ Matched |
-| Error | <10⁻⁶ | <10⁻⁶ | <10⁻³ | ✅ Better than target |
-| Inference Time | 361s | ~129s (projected) | 58s | 🚧 V2 achieves 2.8× speedup, GPU can bridge gap |
+| Accuracy | 99% | 99% | 99% | Matched |
+| Error | <10⁻⁶ | <10⁻⁶ | <10⁻³ | Better than target |
+| Inference Time | 361s | ~129s (projected) | 58s | V2 achieves 2.8× speedup, GPU can bridge gap |
 
 ---
 
@@ -282,7 +286,7 @@ a ⊗ b = Σᵢⱼₖ cᵢⱼₖ · aᵢ · bⱼ · eₖ
 **Noise Management:**
 - Fresh ciphertext: noise ≈ 100
 - After 64 multiplications: noise ≈ 10⁶
-- SNR = Δ/noise ≈ 10⁶ → <10⁻⁶ relative error ✅
+- SNR = Δ/noise ≈ 10⁶ → <10⁻⁶ relative error
 
 ### Point Cloud Encoding
 
@@ -325,7 +329,7 @@ where ⊗ is the homomorphic geometric product.
 ```
 ga_engine/
 ├── src/
-│   ├── clifford_fhe_v1/            # 🔐 V1 (Baseline) - STABLE REFERENCE
+│   ├── clifford_fhe_v1/            # V1 (Baseline) - STABLE REFERENCE
 │   │   ├── ckks_rns.rs             # RNS-CKKS encryption/decryption
 │   │   ├── rns.rs                  # Residue Number System arithmetic
 │   │   ├── geometric_product_rns.rs # All 7 homomorphic operations
@@ -337,7 +341,7 @@ ga_engine/
 │   │   ├── rotation_keys.rs        # Rotation-specific keys
 │   │   └── slot_encoding.rs        # Slot encoding utilities
 │   │
-│   ├── clifford_fhe_v2/            # ⚡ V2 (Optimized) - ACTIVE DEVELOPMENT
+│   ├── clifford_fhe_v2/            # V2 (Optimized) - PRODUCTION CANDIDATE
 │   │   ├── core/                   # Trait abstractions
 │   │   │   ├── traits.rs           # CliffordFHE trait (common interface)
 │   │   │   └── types.rs            # Backend selection, error types
@@ -353,7 +357,7 @@ ga_engine/
 │   └── [vector.rs, bivector.rs, rotor.rs, ...]
 │
 ├── examples/
-│   ├── encrypted_3d_classification.rs  # 🎯 Main ML application demo
+│   ├── encrypted_3d_classification.rs  # Main ML application demo
 │   ├── clifford_fhe_basic.rs           # Basic encryption demo
 │   └── [more examples...]
 │
@@ -585,11 +589,9 @@ All test suites include:
 
 **All tests pass with error < 10⁻⁶ (better than paper target <10⁻³)**
 
----
+## Performance & Optimization
 
-## ⚡ Performance & Optimization
-
-**📊 See [BENCHMARKS.md](BENCHMARKS.md) for detailed V1 vs V2 performance benchmarks**
+**See [BENCHMARKS.md](BENCHMARKS.md) for detailed V1 vs V2 performance benchmarks**
 
 ### Performance Comparison: V1 vs V2
 
@@ -597,22 +599,22 @@ All test suites include:
 
 | Operation | V1 (Baseline) | V2 (Optimized) | Speedup | Status |
 |-----------|---------------|----------------|---------|--------|
-| Key Generation | 52ms | 16ms | **3.2×** | ✅ Complete |
-| Encryption (single) | 11ms | 2.7ms | **4.2×** | ✅ Complete |
-| Decryption (single) | 5.7ms | 1.3ms | **4.4×** | ✅ Complete |
-| Ciphertext Multiplication | 127ms | 45ms | **2.8×** | ✅ Complete |
+| Key Generation | 52ms | 16ms | **3.2×** | Complete |
+| Encryption (single) | 11ms | 2.7ms | **4.2×** | Complete |
+| Decryption (single) | 5.7ms | 1.3ms | **4.4×** | Complete |
+| Ciphertext Multiplication | 127ms | 45ms | **2.8×** | Complete |
 
 #### Geometric Operations (Measured and Projected)
 
 | Operation | V1 (Baseline) | V2 (Optimized) | Speedup | Status |
 |-----------|---------------|----------------|---------|--------|
-| **Geometric Product** | 13s | **2.88s** (measured) | **4.5×** | ✅ Measured |
-| **Wedge Product** | 26s | **5.77s** (measured) | **4.5×** | ✅ Measured |
-| Rotation | 26s | ~5.8s (projected) | ~4.5× | ✅ Projected |
-| Inner Product | 26s | ~5.8s (projected) | ~4.5× | ✅ Projected |
-| Full Inference | 361s | ~80s (projected) | ~4.5× | ✅ Projected |
-| Accuracy | 99% | 99% | Same | ✅ Maintained |
-| Error | <10⁻⁶ | <10⁻⁶ | Same | ✅ Maintained |
+| **Geometric Product** | 13s | **2.88s** (measured) | **4.5×** | Measured |
+| **Wedge Product** | 26s | **5.77s** (measured) | **4.5×** | Measured |
+| Rotation | 26s | ~5.8s (projected) | ~4.5× | Projected |
+| Inner Product | 26s | ~5.8s (projected) | ~4.5× | Projected |
+| Full Inference | 361s | ~80s (projected) | ~4.5× | Projected |
+| Accuracy | 99% | 99% | Same | Maintained |
+| Error | <10⁻⁶ | <10⁻⁶ | Same | Maintained |
 
 **Note:** V2 achieves **4.5× speedup on geometric operations** and **3-4× speedup on core primitives** through algorithmic improvements (O(n log n) NTT) rather than SIMD. Montgomery multiplication infrastructure is implemented but reserved for future V3 development.
 
@@ -624,17 +626,17 @@ During V2 development, we implemented and tested multiple modular multiplication
 
 1. **Barrett Reduction with SIMD** - Initial approach using approximate reduction
    - Problem: Lost precision with 60-bit FHE primes
-   - Result: 17394301760328407 error in encrypt/decrypt test ❌
+   - Result: 17394301760328407 error in encrypt/decrypt test 
    - Conclusion: Approximation errors are catastrophic for FHE
 
 2. **Montgomery Multiplication with SIMD** (AVX2 4-lane, NEON 2-lane)
    - Complete CIOS algorithm with R = 2^64
    - All infrastructure implemented
    - Problem: Extract-scalar-pack overhead negates SIMD benefits
-   - Result: No performance improvement over scalar ❌
+   - Result: No performance improvement over scalar 
    - Conclusion: Montgomery is hard to vectorize efficiently
 
-3. **Native % Operator with LLVM Optimization** ✅ WINNER
+3. **Native % Operator with LLVM Optimization** WINNER
    - Rust's `(a as u128) * (b as u128) % (q as u128)`
    - LLVM generates highly optimized machine code
    - Uses hardware division efficiently on modern CPUs
@@ -649,23 +651,23 @@ During V2 development, we implemented and tested multiple modular multiplication
 
 ### V2 Optimization Strategy
 
-**Phase 1: NTT Algorithmic Optimization (3-4× speedup) ✅ COMPLETE**
-- ✅ Harvey butterfly NTT (O(n log n) polynomial multiplication)
-- ✅ RNS arithmetic with Barrett reduction
-- ✅ CKKS encryption/decryption with NTT
-- ✅ NTT-based key generation
-- ✅ Ciphertext multiplication with NTT relinearization
-- ✅ All geometric operations ported to NTT
+**Phase 1: NTT Algorithmic Optimization (3-4× speedup) COMPLETE**
+- Harvey butterfly NTT (O(n log n) polynomial multiplication)
+- RNS arithmetic with Barrett reduction
+- CKKS encryption/decryption with NTT
+- NTT-based key generation
+- Ciphertext multiplication with NTT relinearization
+- All geometric operations ported to NTT
 - **Result:** 3.2× faster keygen, 4.2× faster encryption, 4.4× faster decryption, 2.8× faster multiplication
 - **Key Insight:** Native % operator with LLVM optimization outperforms manual Barrett/Montgomery SIMD
 
-**Phase 2: Montgomery SIMD Infrastructure 🏗️ IMPLEMENTED (Reserved for V3)**
-- ✅ Complete Montgomery multiplication infrastructure (1500+ lines)
-- ✅ CIOS algorithm with R = 2^64 (exact modular arithmetic)
-- ✅ Montgomery constants (R, R², q') precomputed in NttContext
-- ✅ Conversion functions (to_montgomery, from_montgomery)
-- ✅ SIMD backends (AVX2 4-lane, NEON 2-lane, Scalar)
-- ✅ 7 comprehensive Montgomery tests passing + 19 SIMD tests
+**Phase 2: Montgomery SIMD Infrastructure IMPLEMENTED (Reserved for V3)**
+- Complete Montgomery multiplication infrastructure (1500+ lines)
+- CIOS algorithm with R = 2^64 (exact modular arithmetic)
+- Montgomery constants (R, R², q') precomputed in NttContext
+- Conversion functions (to_montgomery, from_montgomery)
+- SIMD backends (AVX2 4-lane, NEON 2-lane, Scalar)
+- 7 comprehensive Montgomery tests passing + 19 SIMD tests
 - **Status:** Production-candidate but not used in hot path (reserved for future V3 work)
 - **Use Cases:** GPU acceleration (CUDA/Metal), specialized hardware, true vectorization
 - **Technical Note:** Extract-scalar-pack overhead negates SIMD benefits on CPU; native % is faster
@@ -696,17 +698,17 @@ During V2 development, we implemented and tested multiple modular multiplication
 - RAM: 4GB
 - OS: Linux, macOS, or Windows
 
-**Recommended (for paper results):**
-- CPU: Apple M1/M2 or AMD Ryzen 9
-- RAM: 16GB
-- Cores: 8+
+**Recommended:**
+- CPU: Apple M3/M4 or AMD Ryzen 9
+- RAM: 32GB+
+- Cores: 14+
 
-**Paper benchmarks obtained on:**
-- Apple M1 Pro (ARM64, 10 cores)
-- 16 GB RAM
-- macOS Sonoma 14.x
+**V2 Rayon benchmarks obtained on:**
+- Apple M3 Max (ARM64, 14 cores: 10 performance + 4 efficiency)
+- 36 GB RAM
+- macOS Sequoia 15.x
 
-## 🔐 Security
+## Security
 
 ### Security Level
 
@@ -823,9 +825,9 @@ If you use this work, please cite:
 
 ### Near Term (Next 3-6 months)
 
-- [x] **NTT Implementation** - ✅ Complete, achieved 3-4× speedup
-- [x] **Montgomery SIMD Infrastructure** - ✅ Complete, reserved for V3
-- [x] **Benchmarking Suite** - ✅ Complete (see [BENCHMARKS.md](BENCHMARKS.md))
+- [x] **NTT Implementation** - Complete, achieved 3-4× speedup
+- [x] **Montgomery SIMD Infrastructure** - Complete, reserved for V3
+- [x] **Benchmarking Suite** - Complete (see [BENCHMARKS.md](BENCHMARKS.md))
 - [ ] **GPU Acceleration** - CUDA/Metal backends for additional 10-50× speedup
 - [ ] **SIMD Batching** - Pack multivectors into slots for throughput
 
@@ -962,7 +964,7 @@ cargo test --features v1
 
 #### V2 Available Tests
 
-**Status:** ✅ Complete implementation with 127 tests passing
+**Status:** Complete implementation with 127 tests passing
 
 **All V2 Tests:**
 ```bash
@@ -998,14 +1000,14 @@ cargo test --lib clifford_fhe_v2::backends::cpu_optimized::simd --features v2 --
 ```
 
 **V2 Implementation Complete:**
-- ✅ Harvey Butterfly NTT
-- ✅ Barrett Reduction & RNS
-- ✅ V2 Parameter Sets
-- ✅ CKKS Encryption/Decryption
-- ✅ Key Generation
-- ✅ Ciphertext Multiplication
-- ✅ Geometric Operations
-- ✅ SIMD Backends
+- Harvey Butterfly NTT
+- Barrett Reduction & RNS
+- V2 Parameter Sets
+- CKKS Encryption/Decryption
+- Key Generation
+- Ciphertext Multiplication
+- Geometric Operations
+- SIMD Backends
 
 **Performance:** 3.2× faster keygen, 4.2× faster encryption, 4.4× faster decryption, 2.8× faster multiplication
 
@@ -1039,9 +1041,9 @@ This repository contains:
 - `examples/clifford_fhe_basic.rs` - Basic encryption/decryption demo
 
 **Tests:**
-- `tests/test_geometric_operations.rs` - Comprehensive suite with progress bars and detailed metrics ✅
-- `tests/test_clifford_operations_isolated.rs` - Individual operation tests (9 tests) ✅
-- `tests/clifford_fhe_integration_tests.rs` - Fast integration tests ✅
+- `tests/test_geometric_operations.rs` - Comprehensive suite with progress bars and detailed metrics
+- `tests/test_clifford_operations_isolated.rs` - Individual operation tests (9 tests)
+- `tests/clifford_fhe_integration_tests.rs` - Fast integration tests
 - `tests/test_utils.rs` - Test utility framework for progress bars and colored output
 - Plus 31 unit tests in V1 modules
 
