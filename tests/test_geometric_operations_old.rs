@@ -1,4 +1,7 @@
 //! Comprehensive tests for all homomorphic geometric operations
+// V1-specific test - only compile when v1 is enabled and v2 is NOT enabled
+#![cfg(all(feature = "v1", not(feature = "v2")))]
+
 //!
 //! This test suite verifies that ALL 7 fundamental geometric algebra
 //! operations work correctly with the fixed RNS-CKKS implementation.

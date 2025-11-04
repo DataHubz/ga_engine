@@ -1,4 +1,7 @@
 // Simple 5-prime multiplication test
+// V1-specific test - only compile when v1 is enabled and v2 is NOT enabled
+#![cfg(all(feature = "v1", not(feature = "v2")))]
+
 
 use ga_engine::clifford_fhe::params::CliffordFHEParams;
 use ga_engine::clifford_fhe::keys_rns::rns_keygen;

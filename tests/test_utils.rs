@@ -67,7 +67,7 @@ impl TestResult {
 /// Test suite manager for coordinated output
 pub struct TestSuite {
     multi: MultiProgress,
-    results: Vec<TestResult>,
+    pub results: Vec<TestResult>,  // Made public for assertions
     start_time: Instant,
 }
 

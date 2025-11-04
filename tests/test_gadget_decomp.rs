@@ -1,4 +1,6 @@
 // Test gadget decomposition with different numbers of primes
+// V1-specific test - only compile when v1 is enabled and v2 is NOT enabled
+#![cfg(all(feature = "v1", not(feature = "v2")))]
 
 use ga_engine::clifford_fhe::params::CliffordFHEParams;
 use ga_engine::clifford_fhe::rns::{RnsPolynomial, decompose_base_pow2};

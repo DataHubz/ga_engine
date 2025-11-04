@@ -25,6 +25,9 @@ pub mod ckks;
 /// V2 key generation with NTT
 pub mod keys;
 
+/// Ciphertext multiplication with NTT-based relinearization
+pub mod multiplication;
+
 /// V2 geometric operations with NTT
 pub mod geometric;
 

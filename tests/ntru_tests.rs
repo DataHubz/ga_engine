@@ -7,6 +7,8 @@
 //! - GA-based multiplication
 //!
 //! All methods must produce IDENTICAL results.
+//! V1-specific test - only compile when v1 is enabled and v2 is NOT enabled
+#![cfg(all(feature = "v1", not(feature = "v2")))]
 
 use ga_engine::ntru::polynomial::{NTRUParams, Polynomial};
 use ga_engine::ntru::classical::{

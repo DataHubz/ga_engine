@@ -1,4 +1,6 @@
 //! Debug test for psi computation for prime[3]
+//! V1-specific test - only compile when v1 is enabled and v2 is NOT enabled
+#![cfg(all(feature = "v1", not(feature = "v2")))]
 
 use ga_engine::clifford_fhe::ckks_rns::polynomial_multiply_ntt;
 

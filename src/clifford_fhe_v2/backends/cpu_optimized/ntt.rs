@@ -34,16 +34,21 @@ pub struct NttContext {
     /// Modulus q (must be prime, q ≡ 1 mod 2n for NTT to exist)
     pub q: u64,
 
-    /// Primitive 2n-th root of unity: ω^(2n) ≡ 1 mod q
+    /// Primitive 2n-th root of unity: psi^(2n) ≡ 1 mod q
+    /// Used for twist in negacyclic convolution
     pub psi: u64,
 
-    /// Powers of ω in bit-reversed order for forward NTT
-    /// psi_powers_br[i] = ω^(bit_reverse(i)) mod q
-    pub psi_powers_br: Vec<u64>,
+    /// n-th root of unity: omega = psi^2, omega^n ≡ 1 mod q
+    /// Used for cyclic NTT transform
+    pub omega: u64,
 
-    /// Powers of ω^(-1) in bit-reversed order for inverse NTT
-    /// psi_inv_powers_br[i] = ω^(-bit_reverse(i)) mod q
-    pub psi_inv_powers_br: Vec<u64>,
+    /// Powers of omega in bit-reversed order for forward NTT
+    /// omega_powers_br[i] = omega^(bit_reverse(i)) mod q
+    pub omega_powers_br: Vec<u64>,
+
+    /// Powers of omega^(-1) in bit-reversed order for inverse NTT
+    /// omega_inv_powers_br[i] = omega^(-bit_reverse(i)) mod q
+    pub omega_inv_powers_br: Vec<u64>,
 
     /// n^(-1) mod q (for scaling after INTT)
     pub n_inv: u64,
@@ -72,13 +77,17 @@ impl NttContext {
 
         let log_n = n.trailing_zeros() as usize;
 
-        // Find primitive 2n-th root of unity
+        // Find primitive 2n-th root of unity (psi)
         let psi = find_primitive_root(n, q);
-        let psi_inv = mod_inverse(psi, q);
 
-        // Precompute twiddle factors in bit-reversed order
-        let psi_powers_br = precompute_twiddle_factors(psi, n, q, log_n);
-        let psi_inv_powers_br = precompute_twiddle_factors(psi_inv, n, q, log_n);
+        // Compute n-th root of unity: omega = psi^2
+        // This is the root used for cyclic NTT (psi is for the twist)
+        let omega = mul_mod(psi, psi, q);
+        let omega_inv = mod_inverse(omega, q);
+
+        // Precompute twiddle factors for cyclic NTT using omega
+        let omega_powers_br = precompute_twiddle_factors(omega, n, q, log_n);
+        let omega_inv_powers_br = precompute_twiddle_factors(omega_inv, n, q, log_n);
 
         // Compute n^(-1) mod q for INTT scaling
         let n_inv = mod_inverse(n as u64, q);
@@ -87,8 +96,9 @@ impl NttContext {
             n,
             q,
             psi,
-            psi_powers_br,
-            psi_inv_powers_br,
+            omega,
+            omega_powers_br,
+            omega_inv_powers_br,
             n_inv,
             log_n,
         }
@@ -103,47 +113,41 @@ impl NttContext {
     /// Polynomial in NTT domain (evaluations at roots of unity)
     ///
     /// # Details
-    /// Performs in-place Cooley-Tukey FFT with Harvey butterfly.
+    /// Uses Cooley-Tukey decimation-in-time (DIT) algorithm from V1 (proven correct).
     /// Time complexity: O(n log n)
-    /// Space complexity: O(1) additional (in-place)
     pub fn forward_ntt(&self, coeffs: &mut [u64]) {
         assert_eq!(coeffs.len(), self.n, "Input must have length n");
 
-        // Cooley-Tukey decimation-in-frequency NTT
-        let mut len = self.n;
+        let n = self.n;
+        let logn = self.log_n;
 
-        while len > 1 {
-            let half_len = len / 2;
-            let mut w = 1u64;
-            let w_step = self.psi_powers_br[self.n / len];
-
-            for start in (0..self.n).step_by(len) {
-                let mut j = start;
-                let mut k = start + half_len;
-
-                for _ in 0..half_len {
-                    let u = coeffs[j];
-                    let v = coeffs[k];
-
-                    coeffs[j] = add_mod_lazy(u, v, self.q);
-                    let diff = sub_mod_lazy(u, v, self.q);
-                    coeffs[k] = mul_mod_lazy(diff, w, self.q);
-
-                    j += 1;
-                    k += 1;
-                }
-
-                w = mul_mod_lazy(w, w_step, self.q);
+        // Bit-reverse permutation
+        for i in 0..n {
+            let j = bit_reverse(i, logn);
+            if j > i {
+                coeffs.swap(i, j);
             }
-
-            len = half_len;
         }
 
-        // Final reduction to ensure all values are < q
-        for coeff in coeffs.iter_mut() {
-            if *coeff >= self.q {
-                *coeff %= self.q;
+        // Cooley-Tukey DIT (from V1's proven implementation)
+        let mut m = 1;
+        for _ in 0..logn {
+            let m2 = m << 1;
+            // w_m = omega^(n/m2)
+            let w_m = mod_pow(self.omega, (n / m2) as u64, self.q);
+            let mut k = 0;
+            while k < n {
+                let mut w = 1u64;
+                for j in 0..m {
+                    let t = mul_mod(w, coeffs[k + j + m], self.q);
+                    let u = coeffs[k + j];
+                    coeffs[k + j] = add_mod(u, t, self.q);
+                    coeffs[k + j + m] = sub_mod(u, t, self.q);
+                    w = mul_mod(w, w_m, self.q);
+                }
+                k += m2;
             }
+            m = m2;
         }
     }
 
@@ -156,58 +160,70 @@ impl NttContext {
     /// Polynomial coefficients
     ///
     /// # Details
-    /// Performs inverse NTT followed by scaling by n^(-1).
+    /// Uses forward NTT with omega^{-1}, then scales by n^{-1} (from V1's proven implementation).
     /// Time complexity: O(n log n)
     pub fn inverse_ntt(&self, evals: &mut [u64]) {
         assert_eq!(evals.len(), self.n, "Input must have length n");
 
-        // Gentleman-Sande decimation-in-time INTT (inverse of DIF NTT)
-        let mut len = 2;
+        let n = self.n;
+        let logn = self.log_n;
 
-        while len <= self.n {
-            let half_len = len / 2;
-            let mut w = 1u64;
-            let w_step = self.psi_inv_powers_br[self.n / len];
+        // Compute omega_inv = omega^{-1}
+        let omega_inv = mod_inverse(self.omega, self.q);
 
-            for start in (0..self.n).step_by(len) {
-                let mut j = start;
-                let mut k = start + half_len;
-
-                for _ in 0..half_len {
-                    let u = evals[j];
-                    let v = mul_mod_lazy(evals[k], w, self.q);
-
-                    evals[j] = add_mod_lazy(u, v, self.q);
-                    evals[k] = sub_mod_lazy(u, v, self.q);
-
-                    j += 1;
-                    k += 1;
-                }
-
-                w = mul_mod_lazy(w, w_step, self.q);
+        // Bit-reverse permutation
+        for i in 0..n {
+            let j = bit_reverse(i, logn);
+            if j > i {
+                evals.swap(i, j);
             }
-
-            len *= 2;
         }
 
-        // Scale by n^(-1) mod q
+        // Cooley-Tukey DIT with omega_inv
+        let mut m = 1;
+        for _ in 0..logn {
+            let m2 = m << 1;
+            // w_m = omega_inv^(n/m2)
+            let w_m = mod_pow(omega_inv, (n / m2) as u64, self.q);
+            let mut k = 0;
+            while k < n {
+                let mut w = 1u64;
+                for j in 0..m {
+                    let t = mul_mod(w, evals[k + j + m], self.q);
+                    let u = evals[k + j];
+                    evals[k + j] = add_mod(u, t, self.q);
+                    evals[k + j + m] = sub_mod(u, t, self.q);
+                    w = mul_mod(w, w_m, self.q);
+                }
+                k += m2;
+            }
+            m = m2;
+        }
+
+        // Scale by n^{-1} mod q
         for eval in evals.iter_mut() {
             *eval = mul_mod(*eval, self.n_inv, self.q);
         }
     }
 
-    /// Multiply two polynomials using NTT
+    /// Multiply two polynomials using NTT (negacyclic convolution mod x^n + 1)
     ///
     /// # Arguments
     /// * `a` - First polynomial (coefficient representation)
     /// * `b` - Second polynomial (coefficient representation)
     ///
     /// # Returns
-    /// Product polynomial c = a * b in coefficient representation
+    /// Product polynomial c = a * b in coefficient representation (mod x^n + 1)
     ///
     /// # Details
-    /// Uses convolution theorem: NTT(a * b) = NTT(a) ⊙ NTT(b)
-    /// where ⊙ is pointwise multiplication.
+    /// Uses **twisted NTT** for negacyclic convolution:
+    /// 1. Apply twist: multiply coefficients by psi^i
+    /// 2. Forward NTT (now cyclic convolution)
+    /// 3. Pointwise multiplication
+    /// 4. Inverse NTT
+    /// 5. Remove twist: multiply by psi^{-i}
+    ///
+    /// This converts cyclic convolution (mod x^n - 1) to negacyclic (mod x^n + 1)
     /// Time complexity: O(n log n)
     pub fn multiply_polynomials(&self, a: &[u64], b: &[u64]) -> Vec<u64> {
         assert_eq!(a.len(), self.n);
@@ -216,7 +232,16 @@ impl NttContext {
         let mut a_ntt = a.to_vec();
         let mut b_ntt = b.to_vec();
 
-        // Transform to NTT domain
+        // TWIST: Multiply by psi^i to convert to negacyclic
+        // After this, cyclic NTT will compute negacyclic convolution
+        let mut psi_pow = 1u64;
+        for i in 0..self.n {
+            a_ntt[i] = mul_mod(a_ntt[i], psi_pow, self.q);
+            b_ntt[i] = mul_mod(b_ntt[i], psi_pow, self.q);
+            psi_pow = mul_mod(psi_pow, self.psi, self.q);
+        }
+
+        // Transform to NTT domain (cyclic convolution)
         self.forward_ntt(&mut a_ntt);
         self.forward_ntt(&mut b_ntt);
 
@@ -225,8 +250,16 @@ impl NttContext {
             a_ntt[i] = mul_mod(a_ntt[i], b_ntt[i], self.q);
         }
 
-        // Transform back to coefficient domain
+        // Transform back to coefficient domain (still twisted)
         self.inverse_ntt(&mut a_ntt);
+
+        // UNTWIST: Multiply by psi^{-i} to get final result
+        let psi_inv = mod_inverse(self.psi, self.q);
+        let mut psi_inv_pow = 1u64;
+        for i in 0..self.n {
+            a_ntt[i] = mul_mod(a_ntt[i], psi_inv_pow, self.q);
+            psi_inv_pow = mul_mod(psi_inv_pow, psi_inv, self.q);
+        }
 
         a_ntt
     }
@@ -347,19 +380,31 @@ fn mul_mod_lazy(a: u64, b: u64, q: u64) -> u64 {
 
 /// Fast modular addition: (a + b) mod q
 #[inline(always)]
-fn add_mod_lazy(a: u64, b: u64, q: u64) -> u64 {
+fn add_mod(a: u64, b: u64, q: u64) -> u64 {
     let sum = a + b;
     if sum >= q { sum - q } else { sum }
 }
 
 /// Fast modular subtraction: (a - b) mod q
 #[inline(always)]
-fn sub_mod_lazy(a: u64, b: u64, q: u64) -> u64 {
+fn sub_mod(a: u64, b: u64, q: u64) -> u64 {
     if a >= b {
         a - b
     } else {
         a + q - b
     }
+}
+
+/// Fast modular addition: (a + b) mod q (lazy version)
+#[inline(always)]
+fn add_mod_lazy(a: u64, b: u64, q: u64) -> u64 {
+    add_mod(a, b, q)
+}
+
+/// Fast modular subtraction: (a - b) mod q (lazy version)
+#[inline(always)]
+fn sub_mod_lazy(a: u64, b: u64, q: u64) -> u64 {
+    sub_mod(a, b, q)
 }
 
 /// Modular exponentiation: base^exp mod q
@@ -421,7 +466,11 @@ mod tests {
         assert_eq!(ctx.n, 1024);
         assert_eq!(ctx.q, Q_60BIT);
         assert_eq!(ctx.log_n, 10);
-        assert_eq!(ctx.psi_powers_br.len(), 1024);
+        assert_eq!(ctx.omega_powers_br.len(), 1024);
+
+        // Verify omega = psi^2
+        let omega_check = mul_mod(ctx.psi, ctx.psi, ctx.q);
+        assert_eq!(ctx.omega, omega_check, "omega should equal psi^2");
     }
 
     #[test]
@@ -495,10 +544,352 @@ mod tests {
         assert_eq!(mod_pow(7, 0, 13), 1);     // 7^0 = 1
     }
 
+    // ============================================================================
+    // GRANULAR UNIT TESTS FOR NTT DEBUGGING
+    // ============================================================================
+
+    #[test]
+    fn test_modular_arithmetic_basic() {
+        let q = 97u64; // Small prime for easy verification
+
+        // Test addition
+        assert_eq!(add_mod_lazy(50, 60, q), 13); // 110 mod 97 = 13
+        assert_eq!(add_mod_lazy(0, 0, q), 0);
+        assert_eq!(add_mod_lazy(1, 1, q), 2);
+
+        // Test subtraction
+        assert_eq!(sub_mod_lazy(60, 50, q), 10);
+        assert_eq!(sub_mod_lazy(10, 20, q), 87); // -10 mod 97 = 87
+        assert_eq!(sub_mod_lazy(0, 1, q), 96);   // -1 mod 97 = 96
+
+        // Test multiplication
+        assert_eq!(mul_mod(10, 10, q), 3);  // 100 mod 97 = 3
+        assert_eq!(mul_mod(12, 8, q), 96);  // 96 mod 97 = 96
+        assert_eq!(mul_mod(0, 5, q), 0);
+        assert_eq!(mul_mod(1, 5, q), 5);
+    }
+
+    #[test]
+    fn test_modular_inverse_correctness() {
+        let q = 97u64;
+
+        // Test that a * a^(-1) ≡ 1 mod q
+        for a in 1..10 {
+            let a_inv = mod_inverse(a, q);
+            let product = mul_mod(a, a_inv, q);
+            assert_eq!(product, 1, "Inverse of {} failed: {} * {} = {} mod {}", a, a, a_inv, product, q);
+        }
+
+        // Test with 60-bit prime
+        let q60 = Q_60BIT;
+        let a = 123456789u64;
+        let a_inv = mod_inverse(a, q60);
+        let product = mul_mod(a, a_inv, q60);
+        assert_eq!(product, 1, "Inverse failed for 60-bit prime");
+    }
+
+    #[test]
+    fn test_modular_power_correctness() {
+        let q = 97u64;
+
+        // Verify 2^10 mod 97
+        let mut result = 1u64;
+        for _ in 0..10 {
+            result = mul_mod(result, 2, q);
+        }
+        assert_eq!(result, mod_pow(2, 10, q), "Power computation mismatch");
+
+        // Test identity: a^0 = 1
+        assert_eq!(mod_pow(5, 0, q), 1);
+
+        // Test: a^1 = a
+        assert_eq!(mod_pow(5, 1, q), 5);
+
+        // Test: a^(q-1) ≡ 1 mod q (Fermat's little theorem)
+        for a in 2..10 {
+            assert_eq!(mod_pow(a, q - 1, q), 1, "Fermat's little theorem failed for a={}", a);
+        }
+    }
+
+    #[test]
+    fn test_primitive_root_properties() {
+        let n = 1024usize;
+        let q = Q_60BIT;
+
+        let psi = find_primitive_root(n, q);
+
+        // Property 1: psi^(2n) ≡ 1 mod q
+        let psi_2n = mod_pow(psi, 2 * n as u64, q);
+        assert_eq!(psi_2n, 1, "psi^(2n) must equal 1");
+
+        // Property 2: psi^n ≡ -1 mod q (i.e., q-1)
+        let psi_n = mod_pow(psi, n as u64, q);
+        assert_eq!(psi_n, q - 1, "psi^n must equal -1 (i.e., q-1)");
+
+        // Property 3: psi^i ≠ 1 for 0 < i < 2n (primitive root)
+        for i in 1..(2*n) {
+            if i != 2*n {
+                let psi_i = mod_pow(psi, i as u64, q);
+                assert_ne!(psi_i, 1, "psi^{} should not equal 1 (not primitive)", i);
+            }
+        }
+    }
+
+    #[test]
+    fn test_ntt_on_zero_polynomial() {
+        let ctx = NttContext::new(8, Q_60BIT);
+        let mut coeffs = vec![0u64; 8];
+        let original = coeffs.clone();
+
+        ctx.forward_ntt(&mut coeffs);
+        // NTT of zero should be zero
+        for i in 0..8 {
+            assert_eq!(coeffs[i], 0, "NTT of zero must be zero at index {}", i);
+        }
+
+        ctx.inverse_ntt(&mut coeffs);
+        // INTT of zero should be zero
+        for i in 0..8 {
+            assert_eq!(coeffs[i], 0, "INTT of zero must be zero at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_ntt_roundtrip_constant() {
+        // Test that NTT + INTT recovers a constant polynomial
+        let ctx = NttContext::new(8, Q_60BIT);
+        let constant = 42u64;
+        let mut coeffs = vec![0u64; 8];
+        coeffs[0] = constant;
+        let original = coeffs.clone();
+
+        ctx.forward_ntt(&mut coeffs);
+        // NTT changes the values
+        // (We don't check exact values, just that transform works)
+
+        ctx.inverse_ntt(&mut coeffs);
+        // INTT should recover original
+        for i in 0..8 {
+            assert_eq!(coeffs[i], original[i], "INTT roundtrip failed at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_ntt_linearity() {
+        // Test that NTT(a + b) = NTT(a) + NTT(b)
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        let mut a = vec![1u64, 2, 3, 4, 0, 0, 0, 0];
+        let mut b = vec![5u64, 6, 0, 0, 0, 0, 0, 0];
+        let mut sum = vec![6u64, 8, 3, 4, 0, 0, 0, 0]; // a + b
+
+        ctx.forward_ntt(&mut a);
+        ctx.forward_ntt(&mut b);
+        ctx.forward_ntt(&mut sum);
+
+        // Check NTT(a + b) = NTT(a) + NTT(b)
+        for i in 0..8 {
+            let expected = add_mod_lazy(a[i], b[i], ctx.q);
+            assert_eq!(sum[i], expected, "Linearity failed at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_polynomial_multiply_by_zero() {
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        let a = vec![1u64, 2, 3, 4, 5, 6, 7, 8];
+        let b = vec![0u64; 8]; // Zero polynomial
+
+        let c = ctx.multiply_polynomials(&a, &b);
+
+        // a * 0 should be 0
+        for i in 0..8 {
+            assert_eq!(c[i], 0, "Multiplication by zero failed at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_polynomial_multiply_by_one() {
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        let mut a = vec![1u64, 2, 3, 4, 5, 6, 7, 8];
+        let mut b = vec![0u64; 8];
+        b[0] = 1; // Identity polynomial
+
+        let c = ctx.multiply_polynomials(&a, &b);
+
+        // a * 1 should be a
+        for i in 0..8 {
+            assert_eq!(c[i], a[i], "Multiplication by one failed at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_polynomial_multiply_simple_case() {
+        // Test (1 + x) * (1 + x) = 1 + 2x + x^2 mod (x^n + 1)
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        let mut a = vec![0u64; 8];
+        a[0] = 1; // Constant term
+        a[1] = 1; // x term
+
+        let b = a.clone();
+
+        let c = ctx.multiply_polynomials(&a, &b);
+
+        // Expected: 1 + 2x + x^2
+        // Coefficients: [1, 2, 1, 0, 0, 0, 0, 0]
+        eprintln!("Result: {:?}", &c[..4]);
+        eprintln!("Expected: [1, 2, 1, 0]");
+
+        assert_eq!(c[0], 1, "Constant term mismatch");
+        assert_eq!(c[1], 2, "x coefficient mismatch");
+        assert_eq!(c[2], 1, "x^2 coefficient mismatch");
+        for i in 3..8 {
+            assert_eq!(c[i], 0, "Higher coefficients should be zero at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_polynomial_multiply_x_times_x() {
+        // Test x * x = x^2
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        let mut a = vec![0u64; 8];
+        a[1] = 1; // x
+
+        let b = a.clone();
+
+        let c = ctx.multiply_polynomials(&a, &b);
+
+        // Expected: x^2
+        // Coefficients: [0, 0, 1, 0, 0, 0, 0, 0]
+        assert_eq!(c[0], 0);
+        assert_eq!(c[1], 0);
+        assert_eq!(c[2], 1, "x^2 coefficient should be 1");
+        for i in 3..8 {
+            assert_eq!(c[i], 0, "Higher coefficients should be zero");
+        }
+    }
+
+    #[test]
+    fn test_negacyclic_wrap_around() {
+        // Test that x^n ≡ -1 mod (x^n + 1)
+        // For n=8, x^8 should wrap to -1
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        let mut a = vec![0u64; 8];
+        a[7] = 1; // x^7
+
+        let mut b = vec![0u64; 8];
+        b[1] = 1; // x
+
+        let c = ctx.multiply_polynomials(&a, &b);
+
+        // x^7 * x = x^8 ≡ -1 mod (x^8 + 1)
+        // So we expect coefficient [q-1, 0, 0, ..., 0]
+        assert_eq!(c[0], Q_60BIT - 1, "Negacyclic wrap should produce -1");
+        for i in 1..8 {
+            assert_eq!(c[i], 0, "Higher coefficients should be zero");
+        }
+    }
+
     #[test]
     fn test_mod_inverse() {
         assert_eq!(mod_inverse(3, 11), 4);  // 3 * 4 ≡ 1 mod 11
         assert_eq!(mod_inverse(7, 13), 2);  // 7 * 2 ≡ 1 mod 13
         assert_eq!(mod_inverse(5, 17), 7);  // 5 * 7 ≡ 1 mod 17
+    }
+
+    #[test]
+    fn test_cyclic_ntt_basic() {
+        // Test if the basic cyclic NTT works (without twist)
+        // For cyclic NTT: (a*b) mod (x^n - 1) NOT (x^n + 1)
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        // Test: constant polynomial
+        let mut a = vec![5u64; 8];
+        let original = a.clone();
+
+        ctx.forward_ntt(&mut a);
+        ctx.inverse_ntt(&mut a);
+
+        for i in 0..8 {
+            assert_eq!(a[i], original[i], "Cyclic NTT roundtrip failed for constant at index {}", i);
+        }
+
+        // Test: (1 + x) cyclic squared = 1 + 2x + x^2 (no wrap-around in cyclic)
+        let mut a = vec![0u64; 8];
+        a[0] = 1;
+        a[1] = 1;
+
+        let mut b = a.clone();
+
+        ctx.forward_ntt(&mut a);
+        ctx.forward_ntt(&mut b);
+
+        for i in 0..8 {
+            a[i] = mul_mod(a[i], b[i], ctx.q);
+        }
+
+        ctx.inverse_ntt(&mut a);
+
+        eprintln!("Cyclic (1+x)^2 = {:?}", &a[..4]);
+        // For CYCLIC convolution mod (x^8 - 1), should get [1, 2, 1, 0, ...]
+        // NO wrap-around
+        assert_eq!(a[0], 1, "Cyclic: constant term");
+        assert_eq!(a[1], 2, "Cyclic: x term");
+        assert_eq!(a[2], 1, "Cyclic: x^2 term");
+    }
+
+    #[test]
+    fn test_twisted_ntt_manually() {
+        // Manually test twisted NTT transform on a simple case
+        let ctx = NttContext::new(8, Q_60BIT);
+
+        // Test (1 + x) * (1 + x) = 1 + 2x + x^2 manually
+        let mut a = vec![0u64; 8];
+        a[0] = 1;
+        a[1] = 1;
+
+        // Step 1: Apply twist (multiply by psi^i)
+        let mut a_twisted = a.clone();
+        let mut psi_pow = 1u64;
+        for i in 0..8 {
+            a_twisted[i] = mul_mod(a_twisted[i], psi_pow, ctx.q);
+            psi_pow = mul_mod(psi_pow, ctx.psi, ctx.q);
+        }
+
+        eprintln!("After twist: {:?}", &a_twisted[..4]);
+
+        // Step 2: Forward NTT (cyclic)
+        ctx.forward_ntt(&mut a_twisted);
+        eprintln!("After forward NTT: {:?}", &a_twisted[..4]);
+
+        // Step 3: Pointwise multiply (squared)
+        let mut result = a_twisted.clone();
+        for i in 0..8 {
+            result[i] = mul_mod(result[i], a_twisted[i], ctx.q);
+        }
+        eprintln!("After pointwise mul: {:?}", &result[..4]);
+
+        // Step 4: Inverse NTT
+        ctx.inverse_ntt(&mut result);
+        eprintln!("After inverse NTT: {:?}", &result[..4]);
+
+        // Step 5: Remove twist (multiply by psi^{-i})
+        let psi_inv = mod_inverse(ctx.psi, ctx.q);
+        let mut psi_inv_pow = 1u64;
+        for i in 0..8 {
+            result[i] = mul_mod(result[i], psi_inv_pow, ctx.q);
+            psi_inv_pow = mul_mod(psi_inv_pow, psi_inv, ctx.q);
+        }
+        eprintln!("After untwist: {:?}", &result[..4]);
+
+        // Should be [1, 2, 1, 0, ...]
+        assert_eq!(result[0], 1, "Constant term");
+        assert_eq!(result[1], 2, "x term");
+        assert_eq!(result[2], 1, "x^2 term");
     }
 }

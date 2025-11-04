@@ -1,4 +1,7 @@
 //! Test if our "primes" are actually prime
+// V1-specific test - only compile when v1 is enabled and v2 is NOT enabled
+#![cfg(all(feature = "v1", not(feature = "v2")))]
+
 
 /// Simple trial division primality test
 fn is_prime_trial(n: u64) -> bool {

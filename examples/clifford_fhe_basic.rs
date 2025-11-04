@@ -7,13 +7,16 @@
 //! - Decryption and verification
 //!
 //! This is the simplest example showcasing Clifford FHE fundamentals.
+//! V1-specific example - only compile when v1 is enabled and v2 is NOT enabled
 
+#[cfg(all(feature = "v1", not(feature = "v2")))]
 use ga_engine::clifford_fhe::{
     ckks_rns::{rns_decrypt, rns_encrypt, RnsPlaintext},
     keys_rns::rns_keygen,
     params::CliffordFHEParams,
 };
 
+#[cfg(all(feature = "v1", not(feature = "v2")))]
 fn main() {
     println!("=================================================================");
     println!("Clifford-FHE: Basic Encryption/Decryption Demo");
@@ -104,4 +107,10 @@ fn main() {
     println!("\n=================================================================");
     println!("Demo complete!");
     println!("=================================================================");
+}
+
+#[cfg(not(all(feature = "v1", not(feature = "v2"))))]
+fn main() {
+    println!("This example requires the 'v1' feature and must NOT have the 'v2' feature enabled.");
+    println!("Run with: cargo run --example clifford_fhe_basic --features v1 --no-default-features");
 }

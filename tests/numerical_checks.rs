@@ -1,3 +1,6 @@
+// DISABLED: numerical_checks module no longer exists
+#![cfg(feature = "numerical_checks_module_exists")]
+
 use ga_engine::numerical_checks::dft::*;
 use ga_engine::numerical_checks::multivector2::Multivector2;
 use rand::Rng;

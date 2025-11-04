@@ -192,10 +192,10 @@ impl KeyContext {
         // 3. Sample error polynomial e from Gaussian distribution
         let e = self.sample_error(&moduli);
 
-        // 4. Compute b = -a*s - e using NTT multiplication
+        // 4. Compute b = -a*s + e using NTT multiplication
         let a_times_s = self.multiply_polynomials(&a, &sk.coeffs, &moduli);
         let neg_a_times_s = self.negate_polynomial(&a_times_s, &moduli);
-        let b = self.subtract_polynomials(&neg_a_times_s, &e);
+        let b = self.add_polynomials(&neg_a_times_s, &e);
 
         let pk = PublicKey::new(a, b, level);
 
@@ -254,7 +254,9 @@ impl KeyContext {
             .collect()
     }
 
-    /// Multiply two polynomials using NTT (one prime at a time)
+    /// Multiply two polynomials using NTT (negacyclic convolution mod x^n + 1)
+    ///
+    /// Uses V2's fixed NTT implementation (twisted NTT for negacyclic convolution).
     fn multiply_polynomials(
         &self,
         a: &[RnsRepresentation],
@@ -266,16 +268,28 @@ impl KeyContext {
 
         let mut result = vec![RnsRepresentation::new(vec![0; moduli.len()], moduli.to_vec()); n];
 
-        // Multiply for each prime separately using NTT
+        // Multiply for each prime separately using V2's NTT
         for (prime_idx, &q) in moduli.iter().enumerate() {
-            // Extract coefficients for this prime
-            let a_mod_q: Vec<u64> = a.iter().map(|rns| rns.values[prime_idx]).collect();
-            let b_mod_q: Vec<u64> = b.iter().map(|rns| rns.values[prime_idx]).collect();
+            // Create NTT context for this prime
+            let ntt_ctx = super::ntt::NttContext::new(n, q);
 
-            // Multiply using NTT
-            let product_mod_q = self.ntt_contexts[prime_idx].multiply_polynomials(&a_mod_q, &b_mod_q);
+            // Extract coefficients for this prime (convert i64 to u64 mod q)
+            let a_mod_q: Vec<u64> = a.iter().map(|rns| {
+                let val = rns.values[prime_idx] as i64;
+                let normalized = ((val % q as i64) + q as i64) % q as i64;
+                normalized as u64
+            }).collect();
 
-            // Store results
+            let b_mod_q: Vec<u64> = b.iter().map(|rns| {
+                let val = rns.values[prime_idx] as i64;
+                let normalized = ((val % q as i64) + q as i64) % q as i64;
+                normalized as u64
+            }).collect();
+
+            // Multiply using V2's NTT (negacyclic convolution)
+            let product_mod_q = ntt_ctx.multiply_polynomials(&a_mod_q, &b_mod_q);
+
+            // Store results (convert u64 back to i64)
             for (i, &val) in product_mod_q.iter().enumerate() {
                 result[i].values[prime_idx] = val;
             }
@@ -303,6 +317,15 @@ impl KeyContext {
             .collect()
     }
 
+    /// Add two polynomials
+    fn add_polynomials(
+        &self,
+        a: &[RnsRepresentation],
+        b: &[RnsRepresentation],
+    ) -> Vec<RnsRepresentation> {
+        a.iter().zip(b).map(|(x, y)| x.add(y)).collect()
+    }
+
     /// Subtract two polynomials
     fn subtract_polynomials(
         &self,
@@ -320,23 +343,46 @@ impl KeyContext {
         // Compute s^2 using NTT
         let s_squared = self.multiply_polynomials(&sk.coeffs, &sk.coeffs, moduli);
 
-        // Determine number of digits needed
-        // For Q ~ 2^141 (60+41+41 bits), we need ceil(141/20) = 8 digits
-        let q_bits = 141u32; // Approximate total bits
+        // Determine number of digits needed dynamically based on actual moduli
+        // Compute Q = product of all primes, then count bits
+        use num_bigint::BigInt;
+        let q_prod_big: BigInt = moduli.iter().map(|&q| BigInt::from(q)).product();
+        let q_bits = q_prod_big.bits() as u32;
         let num_digits = ((q_bits + base_w - 1) / base_w) as usize;
+
+        // Sanity check: for 3 primes of ~60 bits, Q ~ 2^180, so num_digits ~ 9
+        // For reference: (60+40+40) bits = 140 bits → 7 digits, 180 bits → 9 digits
 
         let mut evk0 = Vec::with_capacity(num_digits);
         let mut evk1 = Vec::with_capacity(num_digits);
 
-        for t in 0..num_digits {
-            // Compute B^t (clamp shift to avoid overflow)
-            let shift_amount = (base_w * t as u32).min(63);
-            let base_power = 1u64 << shift_amount;
+        // Precompute B^t mod q for each prime and each digit (to avoid overflow)
+        let base = 1u64 << base_w;
+        let mut bpow_t_mod_q = vec![vec![0u64; moduli.len()]; num_digits];
+        for (j, &q) in moduli.iter().enumerate() {
+            let q_u128 = q as u128;
+            let mut p = 1u128;
+            for t in 0..num_digits {
+                bpow_t_mod_q[t][j] = (p % q_u128) as u64;
+                p = (p * (base as u128)) % q_u128;
+            }
+        }
 
-            // Compute B^t * s^2
+        for t in 0..num_digits {
+            // Compute B^t * s^2 using precomputed B^t mod q for each prime
             let bt_s2: Vec<RnsRepresentation> = s_squared
                 .iter()
-                .map(|rns| rns.mul_scalar(base_power))
+                .map(|rns| {
+                    let values: Vec<u64> = rns.values.iter().enumerate()
+                        .map(|(j, &val)| {
+                            let q = moduli[j];
+                            let bt_mod_q = bpow_t_mod_q[t][j];
+                            // Compute val * B^t mod q
+                            ((val as u128) * (bt_mod_q as u128) % (q as u128)) as u64
+                        })
+                        .collect();
+                    RnsRepresentation::new(values, moduli.to_vec())
+                })
                 .collect();
 
             // Sample uniform a_t
@@ -345,13 +391,14 @@ impl KeyContext {
             // Sample error e_t
             let e_t = self.sample_error(moduli);
 
-            // Compute b_t = -a_t*s - e_t + B^t*s^2
+            // Compute evk0[t] = -B^t*s^2 + a_t*s + e_t
+            // This ensures: evk0[t] - evk1[t]*s = -B^t*s^2 + e_t
             let a_t_times_s = self.multiply_polynomials(&a_t, &sk.coeffs, moduli);
-            let neg_a_t_s = self.negate_polynomial(&a_t_times_s, moduli);
-            let temp = self.subtract_polynomials(&neg_a_t_s, &e_t);
+            let neg_bt_s2 = self.negate_polynomial(&bt_s2, moduli);
+            let temp = self.add_polynomials(&neg_bt_s2, &a_t_times_s);
             let b_t: Vec<RnsRepresentation> = temp
                 .iter()
-                .zip(&bt_s2)
+                .zip(&e_t)
                 .map(|(x, y)| x.add(y))
                 .collect();
 

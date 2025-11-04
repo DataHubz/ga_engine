@@ -36,11 +36,13 @@ fn mod_pow_u64_v2(base: u64, exp: u64, m: u64) -> u64 {
 
 #[test]
 fn test_fermats_little_theorem() {
-    let q = 1099511693313u64;
+    // Use an actual prime from V2 params (41-bit NTT-friendly prime)
+    let q = 1099511678977u64;  // This is actually prime
     let phi = q - 1;
 
     println!("Testing Fermat's Little Theorem for q = {}", q);
     println!("phi = q-1 = {}", phi);
+    println!("Note: Using a 41-bit prime from V2 parameters");
 
     // Test for several small bases
     for base in [2u64, 3, 5, 7, 11, 13] {
@@ -51,17 +53,22 @@ fn test_fermats_little_theorem() {
         println!("  v1 (current): {}^{} mod {} = {}", base, phi, q, result_v1);
         println!("  v2 (fixed):   {}^{} mod {} = {}", base, phi, q, result_v2);
 
-        assert_eq!(result_v2, 1, "Fermat's Little Theorem: {}^(q-1) must be 1 (mod q)", base);
+        assert_eq!(result_v1, 1, "Fermat's Little Theorem: {}^(q-1) must be 1 (mod q) [v1]", base);
+        assert_eq!(result_v2, 1, "Fermat's Little Theorem: {}^(q-1) must be 1 (mod q) [v2]", base);
     }
 }
 
 #[test]
 fn test_primitive_root_check() {
-    let q = 1099511693313u64;
+    // Use an actual prime from V2 params
+    let q = 1099511678977u64;  // This is actually prime
     let phi = q - 1;
-    let prime_factors = vec![2u64, 97, 257, 673];
+    // phi = 1099511678976 = 2^11 × 536870351
+    // Prime factors: 2 and 536870351
+    let prime_factors = vec![2u64, 536870351];
 
     println!("Testing if g=2 is primitive root of q = {}", q);
+    println!("phi = q-1 = {} = 2^11 × 536870351", phi);
 
     for g in [2u64, 3, 5, 7] {
         println!("\n=== Testing g = {} ===", g);

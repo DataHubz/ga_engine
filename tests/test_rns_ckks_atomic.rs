@@ -2,6 +2,8 @@
 //!
 //! Strategy: Break down multiplication into smallest possible pieces and test each one.
 //! Goal: Isolate the exact line/parameter/value causing the error.
+//! V1-specific test - only compile when v1 is enabled and v2 is NOT enabled
+#![cfg(all(feature = "v1", not(feature = "v2")))]
 
 use ga_engine::clifford_fhe::params::CliffordFHEParams;
 use ga_engine::clifford_fhe::rns::{RnsPolynomial, rns_add, rns_sub, rns_multiply as rns_poly_multiply, decompose_base_pow2, precompute_rescale_inv, rns_rescale_exact};
