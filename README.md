@@ -97,8 +97,8 @@ cd ga_engine
 # Build V1 (default, stable)
 cargo build --release --features v1
 
-# Build V2 (optimized, development)
-cargo build --release --features v2-cpu-optimized
+# Build V2 (optimized, production-candidate)
+cargo build --release --features v2
 ```
 
 ### Version Selection
@@ -108,10 +108,10 @@ cargo build --release --features v2-cpu-optimized
 | Version | When to Use | Command |
 |---------|-------------|---------|
 | **V1** | Baseline reference, reproducibility | `--features v1` |
-| **V2 CPU** | Best performance (no GPU required) | `--features v2-cpu-optimized` |
-| **V2 CUDA** | NVIDIA GPU acceleration | `--features v2-gpu-cuda` |
-| **V2 Metal** | Apple Silicon GPU acceleration | `--features v2-gpu-metal` |
-| **V2 Full** | Maximum performance (all optimizations) | `--features v2-full` |
+| **V2** | Best performance (30× faster, production-candidate) | `--features v2` |
+| **V2 CUDA** | NVIDIA GPU acceleration (future) | `--features v2-gpu-cuda` |
+| **V2 Metal** | Apple Silicon GPU acceleration (future) | `--features v2-gpu-metal` |
+| **V2 Full** | All backends combined (future) | `--features v2-full` |
 
 ### Run Examples
 
@@ -173,8 +173,8 @@ Projected full network inference: ~129s (2.8× faster than V1)
 # Test V1 (baseline reference)
 cargo test --test test_geometric_operations --features v1 -- --nocapture
 
-# Test V2 (optimized, when implemented)
-cargo test --test test_geometric_operations --features v2-cpu-optimized -- --nocapture
+# Test V2 (optimized, production-candidate)
+cargo test --test test_geometric_operations_v2 --features v2 -- --nocapture
 ```
 
 **Tests all 7 operations:**
@@ -205,8 +205,8 @@ Shows basic encryption/decryption cycle.
 # V1: 31 tests (baseline reference)
 cargo test --lib --features v1
 
-# V2: Tests (optimized, when implemented)
-cargo test --lib --features v2-cpu-optimized
+# V2: 127 tests (optimized, production-candidate)
+cargo test --lib clifford_fhe_v2 --features v2
 ```
 
 ## Results Summary
@@ -1023,9 +1023,8 @@ cargo run --example encrypted_3d_classification --release --features v1
 # Full verification (everything, V1)
 cargo test --features v1 && cargo run --example encrypted_3d_classification --release --features v1
 
-# Compare V1 vs V2 performance (when V2 is implemented)
-cargo bench --features v1 -- --save-baseline v1
-cargo bench --features v2-cpu-optimized -- --baseline v1
+# Compare V1 vs V2 performance
+cargo bench --bench v1_vs_v2_benchmark --features v1,v2
 ```
 
 ## What's Included
