@@ -553,6 +553,8 @@ All test suites include:
 
 ## ⚡ Performance & Optimization
 
+**📊 See [BENCHMARKS.md](BENCHMARKS.md) for detailed V1 vs V2 performance benchmarks**
+
 ### Performance Comparison: V1 vs V2
 
 | Operation | V1 (Baseline) | V2 Target | Speedup | Status |
@@ -722,7 +724,7 @@ If you use this work, please cite:
 - [ ] **NTT Implementation** - 10-100× speedup
 - [ ] **SIMD Batching** - Pack multivectors into slots
 - [ ] **GPU Acceleration** - CUDA/Metal backends
-- [ ] **Benchmarking Suite** - Comprehensive performance metrics for V1 vs V2
+- [x] **Benchmarking Suite** - Comprehensive performance metrics for V1 vs V2 (see [BENCHMARKS.md](BENCHMARKS.md))
 
 ### Medium Term (6-12 months)
 

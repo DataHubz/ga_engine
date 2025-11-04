@@ -58,3 +58,23 @@ codegen-units = 1
 [[bench]]
 name = "clifford_ring_crypto"
 harness = false
+
+[[bench]]
+name = "v1_vs_v2_benchmark"
+harness = false
+
+[[bench]]
+name = "v1_core_ops"
+harness = false
+
+[[bench]]
+name = "v1_geometric_ops"
+harness = false
+
+[[bench]]
+name = "v2_core_ops"
+harness = false
+
+[[bench]]
+name = "v2_geometric_ops"
+harness = false
