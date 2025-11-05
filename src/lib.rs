@@ -59,6 +59,9 @@ pub mod nd;
 // Medical imaging applications
 pub mod medical_imaging;
 
+// Lattice reduction for cryptanalysis
+pub mod lattice_reduction;
+
 // --- Public API exports ---
 
 // 3D types and operations
