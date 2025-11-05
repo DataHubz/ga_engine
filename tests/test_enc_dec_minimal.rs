@@ -3,9 +3,9 @@
 #![cfg(all(feature = "v1", not(feature = "v2")))]
 
 
-use ga_engine::clifford_fhe::params::CliffordFHEParams;
-use ga_engine::clifford_fhe::keys_rns::rns_keygen;
-use ga_engine::clifford_fhe::ckks_rns::{RnsPlaintext, rns_encrypt, rns_decrypt};
+use ga_engine::clifford_fhe_v1::params::CliffordFHEParams;
+use ga_engine::clifford_fhe_v1::keys_rns::rns_keygen;
+use ga_engine::clifford_fhe_v1::ckks_rns::{RnsPlaintext, rns_encrypt, rns_decrypt};
 
 #[test]
 fn test_minimal_enc_dec() {
@@ -36,38 +36,11 @@ fn test_minimal_enc_dec() {
     println!("ct.c0.rns_coeffs[0]: {:?}", &ct.c0.rns_coeffs[0][..3]);
     println!("ct.c1.rns_coeffs[0]: {:?}", &ct.c1.rns_coeffs[0][..3]);
 
-    // Manual decryption to see intermediate values
-    use ga_engine::clifford_fhe::rns::rns_multiply as rns_poly_multiply;
-    use ga_engine::clifford_fhe::rns::rns_sub;
+    // Use built-in decryption
+    let decrypted_pt = rns_decrypt(&sk, &ct, &params);
 
-    fn polynomial_multiply_ntt(a: &[i64], b: &[i64], q: i64, n: usize) -> Vec<i64> {
-        let mut result = vec![0i128; n];
-        let q128 = q as i128;
-        for i in 0..n {
-            for j in 0..n {
-                let idx = i + j;
-                let prod = (a[i] as i128) * (b[j] as i128) % q128;
-                if idx < n {
-                    result[idx] = (result[idx] + prod) % q128;
-                } else {
-                    let wrapped_idx = idx % n;
-                    result[wrapped_idx] = (result[wrapped_idx] - prod) % q128;
-                }
-            }
-        }
-        result.iter().map(|&x| ((x % q128 + q128) % q128) as i64).collect()
-    }
-
-    let c1s = rns_poly_multiply(&ct.c1, &sk.coeffs, &params.moduli, polynomial_multiply_ntt);
-
-    println!("\n=== DECRYPTION INTERMEDIATE ===");
-    println!("c1·s residues[0]: {:?}", &c1s.rns_coeffs[0][..3]);
-
-    let m_prime = rns_sub(&ct.c0, &c1s, &params.moduli);
-
-    println!("c0 - c1·s residues[0]: {:?}", &m_prime.rns_coeffs[0][..3]);
-
-    let recovered_coeffs = m_prime.to_coeffs_single_prime(0, params.moduli[0]);
+    // Reconstruct coefficients using single prime (as per comment in code)
+    let recovered_coeffs = decrypted_pt.coeffs.to_coeffs_single_prime(0, params.moduli[0]);
     let recovered_value = (recovered_coeffs[0] as f64) / params.scale;
 
     println!("\n=== RESULT ===");

@@ -40,6 +40,7 @@ pub struct GALLLStats {
 }
 
 /// GA-based LLL lattice reduction
+#[allow(non_camel_case_types)]
 pub struct GA_LLL {
     /// Basis vectors (row vectors)
     basis: Vec<Vec<f64>>,
