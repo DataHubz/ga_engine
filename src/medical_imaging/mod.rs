@@ -11,6 +11,10 @@ pub mod simd_batching;
 pub mod batched_gnn;
 pub mod encrypted_inference;
 
+// V2 CPU backend integration (requires v2 feature)
+#[cfg(feature = "v2")]
+pub mod encrypted_v2_cpu;
+
 // Re-export commonly used types
 pub use point_cloud::{Point3D, PointCloud};
 pub use clifford_encoding::{Multivector3D, encode_point_cloud, encode_batch};
