@@ -9,6 +9,7 @@
 
 use super::point_cloud::{Point3D, PointCloud};
 use rand::Rng;
+use rand::seq::SliceRandom;
 
 /// Shape type for classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
