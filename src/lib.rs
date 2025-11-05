@@ -53,6 +53,9 @@ pub mod vector;
 // N-dimensional GA support
 pub mod nd;
 
+// Medical imaging applications
+pub mod medical_imaging;
+
 // --- Public API exports ---
 
 // 3D types and operations
