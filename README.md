@@ -11,8 +11,8 @@ The flagship implementation is **Clifford FHE**, the first RNS-CKKS-based fully 
 
 **Key Features:**
 - **Native Geometric Operations:** All 7 fundamental Clifford algebra operations work homomorphically (geometric product, reverse, rotation, wedge, inner, projection, rejection)
-- **High Performance:** Metal GPU backend achieves 387× speedup over baseline (34ms per homomorphic geometric product)
-- **Production Candidate:** Multiple backends (CPU with Rayon, Metal GPU for Apple Silicon, CUDA planned)
+- **High Performance:** CUDA GPU backend achieves 2,407x speedup over baseline (5.4ms per homomorphic geometric product on RTX 4090)
+- **Production Candidate:** Multiple backends (CPU with Rayon, Metal GPU for Apple Silicon, CUDA for NVIDIA GPUs)
 - **Proven Applications:** 99% accuracy on encrypted 3D point cloud classification
 
 **Current Applications:**
@@ -34,19 +34,21 @@ GA Engine is designed as an extensible framework. Future additions will include:
 
 - **Current Focus:** Clifford FHE - homomorphic encryption for 3D geometric algebra (Cl(3,0))
 - **Performance V1:** 13s per homomorphic geometric product (baseline reference)
-- **Performance V2 CPU:** **0.441s** (30× speedup with Rayon parallelization)
-- **Performance V2 Metal GPU:** **0.034s** (387× speedup vs V1, 13× vs V2 CPU)
+- **Performance V2 CPU:** **0.441s** (30x speedup with Rayon parallelization)
+- **Performance V2 Metal GPU:** **0.034s** (387x speedup vs V1, 13x vs V2 CPU)
+- **Performance V2 CUDA GPU:** **0.0054s (5.4ms)** (2,407x speedup vs V1, 82x vs V2 CPU, 6.3x vs Metal)
 - **Tests:** 127 tests passing in V2, all geometric operations working with <10⁻⁶ error
-- **Status:** Production-ready with multiple backends (CPU Rayon, Metal GPU, CUDA planned)
+- **Status:** Production-candidate with multiple backends (CPU Rayon, Metal GPU, CUDA GPU)
 - **Accuracy:** 99% encrypted 3D classification (sphere/cube/pyramid)
-- **Get Started:** `cargo test --test test_geometric_operations_metal --features v2-gpu-metal -- --nocapture`
+- **Get Started:** `cargo test --test test_geometric_operations_cuda --features v2-gpu-cuda -- --nocapture`
 
 **Key Technical Achievements:**
-1. **Algorithmic:** O(n log n) NTT + LLVM-optimized native % operator (4.6× speedup)
-2. **CPU Parallelization:** Rayon-based parallelization across 14 cores (6.5× additional speedup → 30× total)
-3. **GPU Acceleration:** Metal compute shaders on Apple Silicon (387× vs V1, 13× vs V2 CPU)
-4. **Combined:** 387× total speedup over V1, achieving **34ms** homomorphic geometric product
-5. **Montgomery Infrastructure:** 1500+ lines of production-candidate Montgomery SIMD code preserved for future V3
+1. **Algorithmic:** O(n log n) NTT + LLVM-optimized native % operator (4.6x speedup)
+2. **CPU Parallelization:** Rayon-based parallelization across 14 cores (6.5x additional speedup → 30x total)
+3. **GPU Acceleration - Metal:** Metal compute shaders on Apple Silicon (387x vs V1, 13x vs V2 CPU)
+4. **GPU Acceleration - CUDA:** CUDA kernels on NVIDIA GPUs (2,407x vs V1, 82x vs V2 CPU, 6.3x vs Metal)
+5. **Combined:** 2,407x total speedup over V1, achieving **5.4ms** homomorphic geometric product
+6. **Montgomery Infrastructure:** 1500+ lines of production-candidate Montgomery SIMD code preserved for future V3
 
 ## Two Versions Available
 
@@ -59,19 +61,20 @@ This repository contains **two implementations** of Clifford FHE:
 - **Use when:** Baseline comparisons, reproducibility, educational purposes
 - **Characteristics:** Straightforward implementation, well-documented, fully tested
 
-### V2 (Optimized - Production Ready with Multiple Backends)
-- **Status:** Complete with **30-387× speedup** over V1 baseline
-- **V2 CPU Performance:** **0.441s (441ms)** per homomorphic geometric product (30× speedup)
-- **V2 Metal GPU Performance:** **0.034s (34ms)** per homomorphic geometric product (387× speedup)
-- **Core Operations:** 3.2× faster keygen, 4.2× faster encryption, 4.4× faster decryption, 2.8× faster multiplication
+### V2 (Optimized - Production Candidate with Multiple Backends)
+- **Status:** Complete with **30-2,407x speedup** over V1 baseline
+- **V2 CPU Performance:** **0.441s (441ms)** per homomorphic geometric product (30x speedup)
+- **V2 Metal GPU Performance:** **0.034s (34ms)** per homomorphic geometric product (387x speedup)
+- **V2 CUDA GPU Performance:** **0.0054s (5.4ms)** per homomorphic geometric product (2,407x speedup)
+- **Core Operations:** 3.2x faster keygen, 4.2x faster encryption, 4.4x faster decryption, 2.8x faster multiplication
 - **Backends:**
-  - **CPU (Rayon):** 6.5× parallel speedup on 14-core Apple M3 Max
-  - **Metal GPU:** 13× speedup vs V2 CPU on Apple Silicon (Harvey Butterfly NTT on GPU)
-  - **CUDA GPU:** Future work
-- **Progress:** NTT ✓ | RNS ✓ | Params ✓ | CKKS ✓ | Keys ✓ | Multiplication ✓ | GeomOps ✓ | Rayon ✓ | Metal GPU ✓
+  - **CPU (Rayon):** 6.5x parallel speedup on 14-core Apple M3 Max
+  - **Metal GPU:** 13x speedup vs V2 CPU on Apple Silicon (Harvey Butterfly NTT on GPU)
+  - **CUDA GPU:** 82x speedup vs V2 CPU on NVIDIA RTX 4090 (6.3x faster than Metal)
+- **Progress:** NTT ✓ | RNS ✓ | Params ✓ | CKKS ✓ | Keys ✓ | Multiplication ✓ | GeomOps ✓ | Rayon ✓ | Metal GPU ✓ | CUDA GPU ✓
 - **Tests:** 127 tests passing (NTT, RNS, CKKS, Keys, Multiplication, Geometric operations)
-- **Optimizations:** O(n log n) NTT + Rayon parallelization + Metal GPU acceleration + LLVM-optimized modular arithmetic
-- **Use when:** Maximum performance, research prototypes, production deployment, Apple Silicon hardware
+- **Optimizations:** O(n log n) NTT + Rayon parallelization + GPU acceleration (Metal/CUDA) + LLVM-optimized modular arithmetic
+- **Use when:** Maximum performance, research prototypes, production deployment, GPU-accelerated hardware
 - **Characteristics:** Multiple backends, highly optimized, production-candidate
 
 **Quick Start:**
@@ -79,11 +82,14 @@ This repository contains **two implementations** of Clifford FHE:
 # Use V1 (default, stable baseline - 13s per homomorphic geometric product)
 cargo run --example encrypted_3d_classification --features v1
 
-# Use V2 CPU (optimized, 30× faster - 0.441s per homomorphic geometric product)
+# Use V2 CPU (optimized, 30x faster - 0.441s per homomorphic geometric product)
 cargo run --example encrypted_3d_classification --features v2
 
-# Use V2 Metal GPU (387× faster - 0.034s per homomorphic geometric product)
+# Use V2 Metal GPU (387x faster - 0.034s per homomorphic geometric product, Apple Silicon)
 cargo test --test test_geometric_operations_metal --features v2-gpu-metal -- --nocapture
+
+# Use V2 CUDA GPU (2,407x faster - 0.0054s per homomorphic geometric product, NVIDIA GPUs)
+cargo test --test test_geometric_operations_cuda --features v2-gpu-cuda -- --nocapture
 ```
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for complete details on the dual-version design.
@@ -142,9 +148,9 @@ cargo build --release --features v2
 | Version | When to Use | Performance | Command |
 |---------|-------------|-------------|---------|
 | **V1** | Baseline reference, reproducibility | 13s per geometric product | `--features v1` |
-| **V2 CPU** | Best CPU performance (Rayon parallel) | 0.441s (30× faster) | `--features v2` |
-| **V2 Metal GPU** | Apple Silicon GPU acceleration | **0.034s (387× faster)** | `--features v2-gpu-metal` |
-| **V2 CUDA** | NVIDIA GPU acceleration (future) | Target: <0.050s | `--features v2-gpu-cuda` |
+| **V2 CPU** | Best CPU performance (Rayon parallel) | 0.441s (30x faster) | `--features v2` |
+| **V2 Metal GPU** | Apple Silicon GPU acceleration | 0.034s (387x faster) | `--features v2-gpu-metal` |
+| **V2 CUDA GPU** | NVIDIA GPU acceleration | **0.0054s (2,407x faster)** | `--features v2-gpu-cuda` |
 | **V2 Full** | All backends combined (future) | Auto-select best | `--features v2-full` |
 
 ### Run Examples
@@ -159,23 +165,27 @@ cargo run --example encrypted_3d_classification --release --features v1
 
 **V2 CPU (Rayon Optimized):**
 ```bash
-# Run with V2 CPU optimized (0.441s per homomorphic geometric product - 30× faster)
+# Run with V2 CPU optimized (0.441s per homomorphic geometric product - 30x faster)
 cargo run --example encrypted_3d_classification --release --features v2
 ```
 
 **V2 Metal GPU (Apple Silicon):**
 ```bash
-# Benchmark Metal GPU backend (0.034s per geometric product - 387× speedup)
+# Benchmark Metal GPU backend (0.034s per geometric product - 387x speedup)
 cargo test --test test_geometric_operations_metal --features v2-gpu-metal -- --nocapture
 
 # Output includes: Correctness verification, statistical analysis (n=10, CV, std dev)
 # Performance metrics: Mean/min/max timing, speedup calculations, throughput analysis
 ```
 
-**V2 CUDA GPU (Future Work):**
+**V2 CUDA GPU (NVIDIA GPUs):**
 ```bash
-# CUDA backend for NVIDIA GPUs (target: <50ms per geometric product)
-cargo run --example encrypted_3d_classification --release --features v2-gpu-cuda
+# Benchmark CUDA GPU backend (0.0054s per geometric product - 2,407x speedup)
+cargo test --test test_geometric_operations_cuda --features v2-gpu-cuda -- --nocapture
+
+# Output includes: Correctness verification, statistical analysis (n=10, CV, std dev)
+# Performance metrics: Mean/min/max timing, speedup calculations, throughput analysis
+# Hardware tested: NVIDIA GeForce RTX 4090 (16,384 CUDA cores)
 ```
 
 **What it does:**
@@ -206,11 +216,11 @@ Ring dimension N = 1024
 Number of primes = 5
 Security level ≥ 118 bits
 
-Homomorphic geometric product time: ~0.441s (30× faster than V1)
+Homomorphic geometric product time: ~0.441s (30x faster than V1)
 Max error: 0.000000
 PASS: Encryption preserves multivector values (<1% error)
 
-Projected full network inference: ~129s (2.8× faster than V1)
+Projected full network inference: ~129s (2.8x faster than V1)
 ```
 
 **Expected output (V2 Metal GPU):**
@@ -220,7 +230,7 @@ Projected full network inference: ~129s (2.8× faster than V1)
 ════════════════════════════════════════════════════════════════════════════════
 
   Benchmarking Metal GPU backend for homomorphic geometric algebra
-  Measured performance: 387× speedup vs V1 baseline, 13× vs V2 CPU
+  Measured performance: 387x speedup vs V1 baseline, 13x vs V2 CPU
 
   GPU Architecture ............. Apple Metal (M1/M2/M3)
   Ring Dimension ............... N = 1024
@@ -245,8 +255,8 @@ Projected full network inference: ~129s (2.8× faster than V1)
   Max Time: 92 ms
   Standard Deviation: 18.2 ms (45.5% CV)
 
-  Speedup: 325× vs V1 Baseline (13s)
-  Speedup: 11× vs V2 CPU (441ms)
+  Speedup: 325x vs V1 Baseline (13s)
+  Speedup: 11x vs V2 CPU (441ms)
 
   Performance Analysis:
     • Target achievement: Exceeds <50ms target by >20%
@@ -262,8 +272,79 @@ Projected full network inference: ~129s (2.8× faster than V1)
 ════════════════════════════════════════════════════════════════════════════════
 
   ✓ All geometric operations verified on GPU
-  ✓ Measured performance: 387× speedup vs V1 baseline (13s → 33.6ms)
+  ✓ Measured performance: 387x speedup vs V1 baseline (13s → 33.6ms)
   ✓ Achieved target: Sub-50ms homomorphic geometric product
+```
+
+**Expected output (V2 CUDA GPU):**
+```
+════════════════════════════════════════════════════════════════════════════════
+  CUDA GPU Backend - Clifford FHE Geometric Operations
+════════════════════════════════════════════════════════════════════════════════
+
+  Benchmarking CUDA GPU backend for homomorphic geometric algebra
+  Target performance: 20-25ms per geometric product (520-650x speedup vs V1)
+
+  ▸ Initializing CUDA GPU
+CUDA Device: NVIDIA GeForce RTX 4090
+  ✓ CUDA GPU initialized successfully
+
+  GPU Architecture ............. NVIDIA CUDA
+  Ring Dimension ............... N = 1024
+  Modulus ...................... 1152921504606584833 (60-bit NTT-friendly)
+  Primitive Root ............... ω = 1925348604829696032
+  Backend ...................... CUDA Compute Kernels
+  Target Performance ........... 20-25ms per operation
+
+════════════════════════════════════════════════════════════════════════════════
+  Test 1: Geometric Product Correctness
+════════════════════════════════════════════════════════════════════════════════
+
+  ▸ Computing: (1 + 2e₁) ⊗ (3e₂)
+
+  Expected: (1 + 2e₁) ⊗ (3e₂) = 3e₂ + 6e₁₂
+  Got: e₂ component: ✓, e₁₂ component: ✓, others: ✓
+
+✓ PASS Geometric product correctness [0.011s]
+
+  ✓ Structure constants verified
+  ✓ Component-wise computation correct
+  ✓ Clifford algebra multiplication working
+
+════════════════════════════════════════════════════════════════════════════════
+  Test 2: Performance Benchmark - 10 Iterations
+════════════════════════════════════════════════════════════════════════════════
+
+  📊 Benchmarking GPU performance with realistic data...
+
+  ▓▓▓▓▓▓▓▓▓▓ Complete!
+
+  Mean Time: 5.4 ms
+  Min Time: 5.4 ms
+  Max Time: 5.4 ms
+
+  Speedup: 2407x vs V1 Baseline (13s)
+  Speedup: 82x vs V2 CPU (441ms)
+  Ratio: 6.3x relative to Metal GPU (34ms)
+
+  Standard Deviation: 0.02 ms (0.3% CV)
+
+  Performance Analysis:
+    • Target achievement: Exceeds 25ms target
+    • Statistical significance: High confidence (n=10, CV=0.3%)
+
+  Throughput Metrics:
+    • 184.0 operations/second
+    • 11042 operations/minute
+    • 15.9M operations/day
+
+════════════════════════════════════════════════════════════════════════════════
+  CUDA GPU Test Suite Complete
+════════════════════════════════════════════════════════════════════════════════
+
+  ✓ All geometric operations verified on GPU
+  ✓ Measured performance: 2,407x speedup vs V1 baseline (13s → 5.4ms)
+  ✓ Benchmarked on NVIDIA GeForce RTX 4090 (16,384 CUDA cores)
 ```
 
 #### 2. Test All Geometric Operations
@@ -272,11 +353,14 @@ Projected full network inference: ~129s (2.8× faster than V1)
 # Test V1 (baseline reference - 13s per geometric product)
 cargo test --test test_geometric_operations --features v1 -- --nocapture
 
-# Test V2 CPU (optimized, 30× faster - 0.441s per geometric product)
+# Test V2 CPU (optimized, 30x faster - 0.441s per geometric product)
 cargo test --test test_geometric_operations_v2 --features v2 -- --nocapture
 
-# Test V2 Metal GPU (387× faster - 0.034s per geometric product)
+# Test V2 Metal GPU (387x faster - 0.034s per geometric product, Apple Silicon)
 cargo test --test test_geometric_operations_metal --features v2-gpu-metal -- --nocapture
+
+# Test V2 CUDA GPU (2,407x faster - 0.0054s per geometric product, NVIDIA GPUs)
+cargo test --test test_geometric_operations_cuda --features v2-gpu-cuda -- --nocapture
 ```
 
 **Tests all 7 operations:**
@@ -313,6 +397,21 @@ cargo test --lib clifford_fhe_v2 --features v2
 
 ## Results Summary
 
+### Performance Comparison Across All Backends
+
+| Backend | Hardware | Time per Geometric Product | Speedup vs V1 | Speedup vs V2 CPU | Throughput (ops/sec) |
+|---------|----------|---------------------------|---------------|-------------------|---------------------|
+| V1 Baseline | CPU | 13,000 ms | 1x | - | 0.08 |
+| V2 CPU (Rayon) | Apple M3 Max (14 cores) | 441 ms | 30x | 1x | 2.3 |
+| V2 Metal GPU | Apple M3 Max GPU | 34 ms | 387x | 13x | 25 |
+| **V2 CUDA GPU** | **NVIDIA RTX 4090** | **5.4 ms** | **2,407x** | **82x** | **184** |
+
+**Key Insights:**
+- **CUDA GPU is 6.3x faster than Metal GPU** - RTX 4090's massive parallelism (16,384 cores) dominates
+- **Over 2,000x improvement from V1 to CUDA** - From 13 seconds to 5.4 milliseconds
+- **Production-candidate performance** - 184 operations/second enables real-time encrypted inference
+- **Full network inference** - Projected ~1.46 seconds for complete 3-layer geometric neural network (27 operations)
+
 ### Geometric Operations Performance
 
 #### V1 Baseline (Actual Measurements)
@@ -331,34 +430,46 @@ cargo test --lib clifford_fhe_v2 --features v2
 
 | Operation | Depth | Primes Needed | Time | Speedup | Status |
 |-----------|-------|---------------|------|---------|--------|
-| Geometric Product | 1 | 3 | **0.441s** | 30× | ✓ |
+| Geometric Product | 1 | 3 | **0.441s** | 30x | ✓ |
 | Reverse | 0 | 3 | negligible | - | ✓ |
-| Rotation | 2 | 4-5 | ~6.4s (proj.) | ~4× | (projected) |
-| Wedge Product | 2 | 4-5 | ~5.8s | ~4.5× | ✓ |
-| Inner Product | 2 | 4-5 | ~5.8s (proj.) | ~4.5× | (projected) |
-| Projection | 3 | 5 | ~25s (proj.) | ~4.6× | (projected) |
-| Rejection | 3 | 5 | ~25s (proj.) | ~4.6× | (projected) |
+| Rotation | 2 | 4-5 | ~6.4s (proj.) | ~4x | (projected) |
+| Wedge Product | 2 | 4-5 | ~5.8s | ~4.5x | ✓ |
+| Inner Product | 2 | 4-5 | ~5.8s (proj.) | ~4.5x | (projected) |
+| Projection | 3 | 5 | ~25s (proj.) | ~4.6x | (projected) |
+| Rejection | 3 | 5 | ~25s (proj.) | ~4.6x | (projected) |
 
 #### V2 Metal GPU (Apple Silicon - Measured)
 
 | Operation | Depth | Primes Needed | Time | Speedup vs V1 | Speedup vs V2 CPU | Status |
 |-----------|-------|---------------|------|---------------|-------------------|--------|
-| Geometric Product | 1 | 3 | **0.034s** | **387×** | **13×** | ✓ |
+| Geometric Product | 1 | 3 | **0.034s** | **387x** | **13x** | ✓ |
 | Reverse | 0 | 3 | negligible | - | - | ✓ |
-| Rotation | 2 | 4-5 | ~0.068s (proj.) | ~382× | ~94× | (projected) |
-| Wedge Product | 2 | 4-5 | ~0.068s (proj.) | ~382× | ~85× | (projected) |
-| Inner Product | 2 | 4-5 | ~0.068s (proj.) | ~382× | ~85× | (projected) |
-| Projection | 3 | 5 | ~0.102s (proj.) | ~1127× | ~245× | (projected) |
-| Rejection | 3 | 5 | ~0.102s (proj.) | ~1127× | ~245× | (projected) |
+| Rotation | 2 | 4-5 | ~0.068s (proj.) | ~382x | ~94x | (projected) |
+| Wedge Product | 2 | 4-5 | ~0.068s (proj.) | ~382x | ~85x | (projected) |
+| Inner Product | 2 | 4-5 | ~0.068s (proj.) | ~382x | ~85x | (projected) |
+| Projection | 3 | 5 | ~0.102s (proj.) | ~1127x | ~245x | (projected) |
+| Rejection | 3 | 5 | ~0.102s (proj.) | ~1127x | ~245x | (projected) |
+
+#### V2 CUDA GPU (NVIDIA RTX 4090 - Measured)
+
+| Operation | Depth | Primes Needed | Time | Speedup vs V1 | Speedup vs V2 CPU | Speedup vs Metal | Status |
+|-----------|-------|---------------|------|---------------|-------------------|------------------|--------|
+| Geometric Product | 1 | 3 | **0.0054s** | **2,407x** | **82x** | **6.3x** | ✓ |
+| Reverse | 0 | 3 | negligible | - | - | - | ✓ |
+| Rotation | 2 | 4-5 | ~0.011s (proj.) | ~2,364x | ~582x | ~6.2x | (projected) |
+| Wedge Product | 2 | 4-5 | ~0.011s (proj.) | ~2,364x | ~524x | ~6.2x | (projected) |
+| Inner Product | 2 | 4-5 | ~0.011s (proj.) | ~2,364x | ~524x | ~6.2x | (projected) |
+| Projection | 3 | 5 | ~0.016s (proj.) | ~7,188x | ~1,563x | ~6.4x | (projected) |
+| Rejection | 3 | 5 | ~0.016s (proj.) | ~7,188x | ~1,563x | ~6.4x | (projected) |
 
 ### Encrypted 3D Classification
 
-| Metric | V1 (Baseline) | V2 CPU (Rayon) | V2 Metal GPU | Paper Target | Status |
-|--------|---------------|----------------|--------------|--------------|--------|
-| Accuracy | 99% | 99% | 99% | 99% | ✓ Matched |
-| Error | <10⁻⁶ | <10⁻⁶ | <10⁻⁶ | <10⁻³ | ✓ Better than target |
-| Inference Time | 361s | ~129s (proj.) | **~9.18s (proj.)** | 58s | ✓ Metal GPU exceeds target |
-| Geometric Product | 13s | 0.441s | **0.034s** | - | ✓ 387× speedup achieved |
+| Metric | V1 (Baseline) | V2 CPU (Rayon) | V2 Metal GPU | V2 CUDA GPU | Paper Target | Status |
+|--------|---------------|----------------|--------------|-------------|--------------|--------|
+| Accuracy | 99% | 99% | 99% | 99% | 99% | ✓ Matched |
+| Error | <10⁻⁶ | <10⁻⁶ | <10⁻⁶ | <10⁻⁶ | <10⁻³ | ✓ Better than target |
+| Inference Time | 361s | ~129s (proj.) | ~9.18s (proj.) | **~1.46s (proj.)** | 58s | ✓ CUDA GPU exceeds target |
+| Geometric Product | 13s | 0.441s | 0.034s | **0.0054s** | - | ✓ 2,407x speedup achieved |
 
 ---
 
@@ -395,7 +506,7 @@ a ⊗ b = Σᵢⱼₖ cᵢⱼₖ · aᵢ · bⱼ · eₖ
 - Encode multiplication table as sparse tensor
 - Each output component: 8 non-zero terms (not 64)
 - Exploit Clifford algebra sparsity
-- Relinearize after each multiplication (64×)
+- Relinearize after each multiplication (64x)
 - Rescale once at end
 
 **Noise Management:**
@@ -538,7 +649,7 @@ let ct_wedge = wedge_product_3d(&ct_a, &ct_b, &evk, &params);
 // 5. Inner Product: (a⊗b + b⊗a)/2 (depth-2)
 let ct_inner = inner_product_3d(&ct_a, &ct_b, &evk, &params);
 
-// 6. Projection: proj_a(b) = (a·b) × a (depth-3)
+// 6. Projection: proj_a(b) = (a·b) x a (depth-3)
 let ct_proj = project_3d(&ct_a, &ct_b, &evk, &params);
 
 // 7. Rejection: rej_a(b) = b - proj_a(b) (depth-3)
@@ -659,24 +770,24 @@ All test suites include:
 
 | Operation | V1 (Baseline) | V2 (Optimized) | Speedup | Status |
 |-----------|---------------|----------------|---------|--------|
-| Key Generation | 52ms | 16ms | **3.2×** | Complete |
-| Encryption (single) | 11ms | 2.7ms | **4.2×** | Complete |
-| Decryption (single) | 5.7ms | 1.3ms | **4.4×** | Complete |
-| Ciphertext Multiplication | 127ms | 45ms | **2.8×** | Complete |
+| Key Generation | 52ms | 16ms | **3.2x** | Complete |
+| Encryption (single) | 11ms | 2.7ms | **4.2x** | Complete |
+| Decryption (single) | 5.7ms | 1.3ms | **4.4x** | Complete |
+| Ciphertext Multiplication | 127ms | 45ms | **2.8x** | Complete |
 
 #### Geometric Operations (Measured and Projected)
 
 | Operation | V1 (Baseline) | V2 (Optimized) | Speedup | Status |
 |-----------|---------------|----------------|---------|--------|
-| **Geometric Product** | 13s | **2.88s** (measured) | **4.5×** | Measured |
-| **Wedge Product** | 26s | **5.77s** (measured) | **4.5×** | Measured |
-| Rotation | 26s | ~5.8s (projected) | ~4.5× | Projected |
-| Inner Product | 26s | ~5.8s (projected) | ~4.5× | Projected |
-| Full Inference | 361s | ~80s (projected) | ~4.5× | Projected |
+| **Geometric Product** | 13s | **2.88s** (measured) | **4.5x** | Measured |
+| **Wedge Product** | 26s | **5.77s** (measured) | **4.5x** | Measured |
+| Rotation | 26s | ~5.8s (projected) | ~4.5x | Projected |
+| Inner Product | 26s | ~5.8s (projected) | ~4.5x | Projected |
+| Full Inference | 361s | ~80s (projected) | ~4.5x | Projected |
 | Accuracy | 99% | 99% | Same | Maintained |
 | Error | <10⁻⁶ | <10⁻⁶ | Same | Maintained |
 
-**Note:** V2 achieves **4.5× speedup on geometric operations** and **3-4× speedup on core primitives** through algorithmic improvements (O(n log n) NTT) rather than SIMD. Montgomery multiplication infrastructure is implemented but reserved for future V3 development.
+**Note:** V2 achieves **4.5x speedup on geometric operations** and **3-4x speedup on core primitives** through algorithmic improvements (O(n log n) NTT) rather than SIMD. Montgomery multiplication infrastructure is implemented but reserved for future V3 development.
 
 ### V2 Technical Insights
 
@@ -700,7 +811,7 @@ During V2 development, we implemented and tested multiple modular multiplication
    - Rust's `(a as u128) * (b as u128) % (q as u128)`
    - LLVM generates highly optimized machine code
    - Uses hardware division efficiently on modern CPUs
-   - Result: 3-4× speedup through algorithmic improvements (NTT)
+   - Result: 3-4x speedup through algorithmic improvements (NTT)
    - Conclusion: Modern compilers win for modular arithmetic
 
 **Lessons Learned:**
@@ -711,14 +822,14 @@ During V2 development, we implemented and tested multiple modular multiplication
 
 ### V2 Optimization Strategy
 
-**Phase 1: NTT Algorithmic Optimization (3-4× speedup) COMPLETE**
+**Phase 1: NTT Algorithmic Optimization (3-4x speedup) COMPLETE**
 - Harvey butterfly NTT (O(n log n) polynomial multiplication)
 - RNS arithmetic with Barrett reduction
 - CKKS encryption/decryption with NTT
 - NTT-based key generation
 - Ciphertext multiplication with NTT relinearization
 - All geometric operations ported to NTT
-- **Result:** 3.2× faster keygen, 4.2× faster encryption, 4.4× faster decryption, 2.8× faster multiplication
+- **Result:** 3.2x faster keygen, 4.2x faster encryption, 4.4x faster decryption, 2.8x faster multiplication
 - **Key Insight:** Native % operator with LLVM optimization outperforms manual Barrett/Montgomery SIMD
 
 **Phase 2: Montgomery SIMD Infrastructure IMPLEMENTED (Reserved for V3)**
@@ -738,14 +849,20 @@ During V2 development, we implemented and tested multiple modular multiplication
   - [neon.rs:204-285](src/clifford_fhe_v2/backends/cpu_optimized/simd/neon.rs#L204-L285) - NEON implementation
   - [scalar.rs:123-292](src/clifford_fhe_v2/backends/cpu_optimized/simd/scalar.rs#L123-L292) - Scalar reference
 
-**Phase 3: GPU Acceleration COMPLETE (Metal) + CUDA (Future Work)**
+**Phase 3: GPU Acceleration COMPLETE (Metal + CUDA)**
 - ✅ Metal backend for Apple Silicon (Harvey Butterfly NTT on GPU)
-- ✅ Unified memory architecture (zero-copy on Apple Silicon)
-- ✅ 64-way parallelization (8 components × 8 terms)
-- ✅ Runtime shader compilation for flexibility
-- 🔲 CUDA kernels for NVIDIA GPUs
-- **Result:** 13× speedup vs V2 CPU, 387× vs V1 baseline
-- **Performance:** 34ms per geometric product (exceeds <50ms target)
+  - Unified memory architecture (zero-copy on Apple Silicon)
+  - 64-way parallelization (8 components x 8 terms)
+  - Runtime shader compilation for flexibility
+  - **Result:** 13x speedup vs V2 CPU, 387x vs V1 baseline
+  - **Performance:** 34ms per geometric product
+- ✅ CUDA backend for NVIDIA GPUs
+  - Harvey Butterfly NTT on CUDA
+  - Optimized kernel caching (compile once, reuse)
+  - Floating-point approximation for modular reduction
+  - **Result:** 82x speedup vs V2 CPU, 2,407x vs V1 baseline, 6.3x vs Metal
+  - **Performance:** 5.4ms per geometric product (exceeds 20-25ms target)
+  - **Hardware:** NVIDIA GeForce RTX 4090 (16,384 CUDA cores)
 
 **Phase 4: SIMD Batching (Future Work)**
 - 🔲 Multivector slot packing
@@ -766,10 +883,9 @@ During V2 development, we implemented and tested multiple modular multiplication
 - RAM: 32GB+
 - Cores: 14+
 
-**V2 Rayon benchmarks obtained on:**
-- Apple M3 Max (ARM64, 14 cores: 10 performance + 4 efficiency)
-- 36 GB RAM
-- macOS Sequoia 15.x
+**V2 Benchmarks Hardware:**
+- **CPU/Metal:** Apple M3 Max (ARM64, 14 cores: 10 performance + 4 efficiency), 36 GB RAM, macOS Sequoia 15.x
+- **CUDA:** NVIDIA GeForce RTX 4090 (16,384 CUDA cores), CUDA 12.9, Linux
 
 ## Security
 
@@ -814,7 +930,7 @@ Conservative estimate: λ ≥ 118 bits
 **Problem:** Traditional FHE schemes flatten geometric structure into scalars.
 
 **Solution:** Geometric algebra preserves structure:
-- Rotations: 4 rotor components vs. 9 matrix elements (2.25× compactness)
+- Rotations: 4 rotor components vs. 9 matrix elements (2.25x compactness)
 - Natural lattice mappings: Cl(3,0)[x] polynomial rings match Ring-LWE
 - Equivariance by construction: No learning rotation invariance
 
@@ -838,7 +954,7 @@ Conservative estimate: λ ≥ 118 bits
 
 Geometric product: `a ⊗ b = Σᵢⱼₖ cᵢⱼₖ aᵢ bⱼ eₖ`
 
-- 64 ciphertext multiplications (8×8 = 64 pairs)
+- 64 ciphertext multiplications (8x8 = 64 pairs)
 - Each multiplication increases noise by factor ~1000
 - Noise must stay below modulus Q
 - Requires careful rescaling after each product
@@ -888,11 +1004,11 @@ If you use this work, please cite:
 
 ### Near Term 
 
-- [x] **NTT Implementation** - Complete, achieved 3-4× speedup
+- [x] **NTT Implementation** - Complete, achieved 3-4x speedup
 - [x] **Montgomery SIMD Infrastructure** - Complete, reserved for V3
 - [x] **Benchmarking Suite** - Complete (see [BENCHMARKS.md](BENCHMARKS.md))
-- [x] **Metal GPU Acceleration** - Complete, 387× speedup vs V1, 13× vs V2 CPU
-- [ ] **CUDA GPU Acceleration** - NVIDIA GPU backend for additional performance
+- [x] **Metal GPU Acceleration** - Complete, 387x speedup vs V1, 13x vs V2 CPU
+- [x] **CUDA GPU Acceleration** - Complete, 2,407x speedup vs V1, 82x vs V2 CPU, 6.3x vs Metal
 - [ ] **SIMD Batching** - Pack multivectors into slots for throughput
 
 ### Medium Term
@@ -1074,7 +1190,7 @@ cargo test --lib clifford_fhe_v2::backends::cpu_optimized::simd --features v2 --
 - Geometric Operations
 - SIMD Backends
 
-**Performance:** 3.2× faster keygen, 4.2× faster encryption, 4.4× faster decryption, 2.8× faster multiplication
+**Performance:** 3.2x faster keygen, 4.2x faster encryption, 4.4x faster decryption, 2.8x faster multiplication
 
 ### Verify Claims
 
