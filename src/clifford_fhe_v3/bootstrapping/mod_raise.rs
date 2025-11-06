@@ -161,7 +161,9 @@ mod tests {
         let ckks_ctx = CkksContext::new(params.clone());
 
         // Encrypt a small plaintext (values that fit in single prime)
-        let plaintext = vec![1.0, 2.0, 3.0, 4.0];
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Plaintext;
+        let plaintext_values = vec![1.0, 2.0, 3.0, 4.0];
+        let plaintext = Plaintext::encode(&plaintext_values, params.scale, &params);
         let ct = ckks_ctx.encrypt(&plaintext, &public_key);
 
         // Define higher modulus chain (add more primes)
@@ -182,13 +184,14 @@ mod tests {
         assert_eq!(ct_raised.c1[0].moduli.len(), 5);
 
         // Decrypt - should get same plaintext (approximately)
-        let decrypted = ckks_ctx.decrypt(&ct_raised, &secret_key);
+        let decrypted_pt = ckks_ctx.decrypt(&ct_raised, &secret_key);
+        let decrypted = decrypted_pt.decode(&params);
 
         // Check accuracy (allow some error due to approximation in scaling)
-        for i in 0..plaintext.len().min(decrypted.len()) {
-            let error = (plaintext[i] - decrypted[i]).abs();
+        for i in 0..plaintext_values.len().min(decrypted.len()) {
+            let error = (plaintext_values[i] - decrypted[i]).abs();
             println!("plaintext[{}] = {}, decrypted[{}] = {}, error = {}",
-                     i, plaintext[i], i, decrypted[i], error);
+                     i, plaintext_values[i], i, decrypted[i], error);
 
             // For now, this may have larger error due to simplified scaling
             // This will be fixed when proper CRT reconstruction is implemented
@@ -203,7 +206,9 @@ mod tests {
         let (public_key, _, _) = key_ctx.keygen();
         let ckks_ctx = CkksContext::new(params.clone());
 
-        let plaintext = vec![1.0, 2.0];
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Plaintext;
+        let plaintext_values = vec![1.0, 2.0];
+        let plaintext = Plaintext::encode(&plaintext_values, params.scale, &params);
         let ct = ckks_ctx.encrypt(&plaintext, &public_key);
 
         // Try to "raise" to same number of moduli
@@ -219,7 +224,9 @@ mod tests {
         let (public_key, _, _) = key_ctx.keygen();
         let ckks_ctx = CkksContext::new(params.clone());
 
-        let plaintext = vec![1.0, 2.0];
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Plaintext;
+        let plaintext_values = vec![1.0, 2.0];
+        let plaintext = Plaintext::encode(&plaintext_values, params.scale, &params);
         let ct = ckks_ctx.encrypt(&plaintext, &public_key);
 
         // Use different moduli (not including originals as prefix)

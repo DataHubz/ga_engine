@@ -304,7 +304,7 @@ mod tests {
         let (pk, sk, evk) = key_ctx.keygen();
 
         // Create CKKS context
-        let ckks_ctx = CKKSContext::new(params.clone());
+        let ckks_ctx = CkksContext::new(params.clone());
 
         // Create simple message: [1, 2, 3, 4, 0, 0, ..., 0]
         let mut message = vec![0.0; params.n / 2];
@@ -314,7 +314,7 @@ mod tests {
         message[3] = 4.0;
 
         // Encode and encrypt
-        let pt = ckks_ctx.encode(&message, params.max_level());
+        let pt = ckks_ctx.encode(&message);
         let ct = ckks_ctx.encrypt(&pt, &pk);
 
         // Generate rotation keys for small set

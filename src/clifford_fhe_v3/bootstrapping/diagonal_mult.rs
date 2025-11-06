@@ -72,14 +72,35 @@ pub fn diagonal_mult(
         ));
     }
 
-    // Encode diagonal as plaintext
-    // For CKKS, we need to encode complex values in canonical embedding
-    // For simplicity, we'll encode real values (imaginary parts = 0)
-    let pt_diagonal = encode_diagonal_as_plaintext(diagonal, params)?;
+    // Encode diagonal as plaintext using V2 CKKS encoding
+    // Use scale=1.0 to avoid scale explosion (temporary until rescale_to_next is implemented)
+    use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{Plaintext, CkksContext};
 
-    // Multiply ciphertext by plaintext diagonal
-    // This is plaintext-ciphertext multiplication (no relinearization needed)
-    multiply_by_plaintext(ct, &pt_diagonal, params)
+    let mut pt_diagonal = Plaintext::encode(diagonal, 1.0, params);
+
+    eprintln!("DEBUG: ct.level = {}, pt_diagonal.level = {}, params.moduli.len() = {}", ct.level, pt_diagonal.level, params.moduli.len());
+    eprintln!("DEBUG: ct num moduli = {}, pt num moduli = {}", ct.c0[0].moduli.len(), pt_diagonal.coeffs[0].moduli.len());
+
+    // Adjust plaintext level to match ciphertext level if needed
+    if ct.level < params.moduli.len() - 1 {
+        use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
+
+        let moduli = &params.moduli[..=ct.level];
+        eprintln!("DEBUG: Truncating pt from {} to {} moduli", pt_diagonal.coeffs[0].moduli.len(), moduli.len());
+        for coeff in &mut pt_diagonal.coeffs {
+            coeff.values.truncate(moduli.len());
+            coeff.moduli = moduli.to_vec();
+        }
+        pt_diagonal.level = ct.level;
+    }
+
+    // Debug: Check what the diagonal plaintext encodes
+    let diagonal_decoded = pt_diagonal.decode(params);
+    eprintln!("DEBUG: Diagonal plaintext encodes: {:?}", &diagonal_decoded[..8]);
+
+    // Use V2's built-in plaintext multiplication
+    let ckks_ctx = CkksContext::new(params.clone());
+    Ok(ct.multiply_plain(&pt_diagonal, &ckks_ctx))
 }
 
 /// Encode diagonal values as CKKS plaintext
@@ -90,6 +111,7 @@ pub fn diagonal_mult(
 ///
 /// * `diagonal` - Real diagonal values
 /// * `params` - FHE parameters (for scaling)
+/// * `level` - Level of the plaintext (determines which moduli to use)
 ///
 /// # Returns
 ///
@@ -97,56 +119,28 @@ pub fn diagonal_mult(
 fn encode_diagonal_as_plaintext(
     diagonal: &[f64],
     params: &CliffordFHEParams,
+    level: usize,
 ) -> Result<Plaintext, String> {
-    // For CKKS encoding, we need to:
-    // 1. Create coefficient representation of diagonal values
-    // 2. Apply inverse DFT to get polynomial coefficients
-    // 3. Scale by Δ (scaling factor)
+    use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Plaintext;
 
-    // For now, we'll use a simplified encoding
-    // TODO: Implement proper canonical embedding for complex slots
+    // Use proper V2 CKKS encoding
+    let mut pt = Plaintext::encode(diagonal, params.scale, params);
 
-    let n = params.n;
-    let scale = params.scale;
+    // Adjust the plaintext to match the ciphertext level
+    // If the ciphertext is at a lower level, we need to drop higher-level moduli
+    if level < params.moduli.len() - 1 {
+        use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
 
-    // Create polynomial coefficients
-    // In coefficient form, we need to encode the slot values
-    let mut coeffs = vec![0i64; n];
-
-    // Simplified: Just scale the diagonal values
-    // This is NOT correct CKKS encoding - needs proper implementation
-    for (i, &val) in diagonal.iter().enumerate() {
-        if i < n {
-            coeffs[i] = (val * scale).round() as i64;
+        // Truncate RNS representation to match the level
+        let moduli = &params.moduli[..=level];
+        for coeff in &mut pt.coeffs {
+            coeff.values.truncate(moduli.len());
+            coeff.moduli = moduli.to_vec();
         }
+        pt.level = level;
     }
 
-    // Create RNS representation
-    use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
-
-    let moduli = &params.moduli[..=0]; // level 0
-    let mut rns_coeffs = Vec::with_capacity(n);
-
-    for &coeff in &coeffs {
-        let values: Vec<u64> = moduli.iter().map(|&q| {
-            if coeff >= 0 {
-                (coeff as u64) % q
-            } else {
-                let abs_val = (-coeff) as u64;
-                let remainder = abs_val % q;
-                if remainder == 0 { 0 } else { q - remainder }
-            }
-        }).collect();
-
-        rns_coeffs.push(RnsRepresentation::new(values, moduli.to_vec()));
-    }
-
-    Ok(Plaintext {
-        coeffs: rns_coeffs,
-        scale,
-        n,
-        level: 0,
-    })
+    Ok(pt)
 }
 
 /// Multiply ciphertext by plaintext (element-wise in slots)
@@ -219,7 +213,7 @@ pub fn multiply_by_plaintext(
 mod tests {
     use super::*;
     use crate::clifford_fhe_v2::backends::cpu_optimized::keys::KeyContext;
-    use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{encode_vec, decode_vec};
+    use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{Plaintext, CkksContext};
 
     #[test]
     fn test_diagonal_mult_simple() {
@@ -231,8 +225,17 @@ mod tests {
         // Create test vector
         let vec = vec![1.0, 2.0, 3.0, 4.0];
 
-        // Encrypt
-        let ct = encode_vec(&vec, &pk, &params).unwrap();
+        // Create CKKS context for encoding/encryption
+        let ckks_ctx = CkksContext::new(params.clone());
+
+        // Encode and encrypt
+        let pt = Plaintext::encode(&vec, params.scale, &params);
+        let ct = ckks_ctx.encrypt(&pt, &pk);
+
+        // Verify encryption works by decrypting before diagonal_mult
+        let pt_check = ckks_ctx.decrypt(&ct, &sk);
+        let check_values = pt_check.decode(&params);
+        println!("Input ciphertext decrypts to: {:?}", &check_values[..4]);
 
         // Create diagonal [2.0, 3.0, 4.0, 5.0, ...]
         let num_slots = params.n / 2;
@@ -245,8 +248,14 @@ mod tests {
         // Apply diagonal multiplication
         let ct_result = diagonal_mult(&ct, &diagonal, &params, &key_ctx).unwrap();
 
-        // Decrypt and check
-        let result = decode_vec(&ct_result, &sk, &params).unwrap();
+        println!("Before diagonal_mult: scale = {}", ct.scale);
+        println!("After diagonal_mult: scale = {}", ct_result.scale);
+
+        // Decrypt and decode
+        let pt_result = ckks_ctx.decrypt(&ct_result, &sk);
+        println!("Plaintext scale after decryption: {}", pt_result.scale);
+        let result = pt_result.decode(&params);
+        println!("Result after diagonal_mult: {:?}", &result[..4]);
 
         // Expected: [1*2, 2*3, 3*4, 4*5] = [2, 6, 12, 20]
         assert!((result[0] - 2.0).abs() < 1.0, "slot 0: expected 2, got {}", result[0]);
@@ -261,8 +270,10 @@ mod tests {
         let key_ctx = KeyContext::new(params.clone());
         let (pk, _, _) = key_ctx.keygen();
 
+        let ckks_ctx = CkksContext::new(params.clone());
         let vec = vec![1.0, 2.0, 3.0];
-        let ct = encode_vec(&vec, &pk, &params).unwrap();
+        let pt = Plaintext::encode(&vec, params.scale, &params);
+        let ct = ckks_ctx.encrypt(&pt, &pk);
 
         // Wrong diagonal size
         let diagonal = vec![1.0, 2.0, 3.0];  // Should be N/2 = 512 elements

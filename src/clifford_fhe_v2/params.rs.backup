@@ -41,20 +41,10 @@ pub struct CliffordFHEParams {
     /// Security level
     pub security: SecurityLevel,
 
-    /// Precomputed scale inverses for multiply_plain (DEPRECATED - use rescale instead)
+    /// Precomputed scale inverses for multiply_plain
     /// inv_scale_mod_q[level][prime_idx] = (scale mod q_i)^(-1) mod q_i
     /// Used to cancel scale inflation in plaintext multiplication
     pub inv_scale_mod_q: Vec<Vec<u64>>,
-
-    /// Precomputed modulus inverses for rescale operation
-    /// inv_q_top_mod_q[level-1][prime_idx] = q_level^(-1) mod q_i for i=0..level-1
-    /// Used in rescale_to_next() to divide by the top modulus
-    pub inv_q_top_mod_q: Vec<Vec<u64>>,
-
-    /// Normalization constant for multiply_plain operations
-    /// κ ≈ n/2 × 1.46 compensates for encode/decode canonical embedding mismatch
-    /// Use encode_for_plain_mul instead of encode when creating plaintexts for multiply_plain
-    pub kappa_plain_mul: f64,
 }
 
 impl CliffordFHEParams {
@@ -75,9 +65,6 @@ impl CliffordFHEParams {
         ];
         let scale = 2f64.powi(40); // Exact power of 2
         let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
-        let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
-        // κ measured empirically for n=1024 with drop-limb rescale: κ ≈ 1200
-        let kappa_plain_mul = 1200.0;
 
         Self {
             n,
@@ -86,8 +73,6 @@ impl CliffordFHEParams {
             error_std: 3.2,
             security: SecurityLevel::Bit128,
             inv_scale_mod_q,
-            inv_q_top_mod_q,
-            kappa_plain_mul,
         }
     }
 
@@ -107,8 +92,6 @@ impl CliffordFHEParams {
         ];
         let scale = 2f64.powi(40);
         let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
-        let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
-        let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
 
         Self {
             n,
@@ -117,8 +100,6 @@ impl CliffordFHEParams {
             error_std: 3.2,
             security: SecurityLevel::Bit128,
             inv_scale_mod_q,
-            inv_q_top_mod_q,
-            kappa_plain_mul,
         }
     }
 
@@ -140,8 +121,6 @@ impl CliffordFHEParams {
         ];
         let scale = 2f64.powi(40);
         let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
-        let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
-        let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
 
         Self {
             n,
@@ -150,8 +129,6 @@ impl CliffordFHEParams {
             error_std: 3.2,
             security: SecurityLevel::Bit128,
             inv_scale_mod_q,
-            inv_q_top_mod_q,
-            kappa_plain_mul,
         }
     }
 
@@ -161,68 +138,65 @@ impl CliffordFHEParams {
     ///
     /// **Modulus chain:** 9 primes for depth-7 support
     pub fn new_128bit() -> Self {
-        let n = 8192;
-        let moduli = vec![
-            1152921504606994433,  // 60-bit: q ≡ 1 mod 16384
-            1099511922689,        // 41-bit: q ≡ 1 mod 16384
-            1099512004609,        // 41-bit: q ≡ 1 mod 16384
-            1099512266753,        // 41-bit: q ≡ 1 mod 16384
-            1099512299521,        // 41-bit: q ≡ 1 mod 16384
-            1099512365057,        // 41-bit: q ≡ 1 mod 16384
-            1099512856577,        // 41-bit: q ≡ 1 mod 16384
-            1099512938497,        // 41-bit: q ≡ 1 mod 16384
-            1099513774081,        // 41-bit: q ≡ 1 mod 16384
-        ];
-        let scale = 2f64.powi(40);
-        let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
-
-        let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
-        let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
-        Self { n, moduli, scale, error_std: 3.2, security: SecurityLevel::Bit128, inv_scale_mod_q, inv_q_top_mod_q, kappa_plain_mul }
+        Self {
+            n: 8192,
+            moduli: vec![
+                1152921504606994433,  // 60-bit: q ≡ 1 mod 16384
+                1099511922689,        // 41-bit: q ≡ 1 mod 16384
+                1099512004609,        // 41-bit: q ≡ 1 mod 16384
+                1099512266753,        // 41-bit: q ≡ 1 mod 16384
+                1099512299521,        // 41-bit: q ≡ 1 mod 16384
+                1099512365057,        // 41-bit: q ≡ 1 mod 16384
+                1099512856577,        // 41-bit: q ≡ 1 mod 16384
+                1099512938497,        // 41-bit: q ≡ 1 mod 16384
+                1099513774081,        // 41-bit: q ≡ 1 mod 16384
+            ],
+            scale: 2f64.powi(40),
+            error_std: 3.2,
+            security: SecurityLevel::Bit128,
+        }
     }
 
     /// Production parameters for 192-bit security (N=16384, depth-7)
     pub fn new_192bit() -> Self {
-        let n = 16384;
-        let moduli = vec![
-            1152921504607338497,  // 60-bit: q ≡ 1 mod 32768
-            1099511922689,        // 41-bit: q ≡ 1 mod 32768
-            1099512938497,        // 41-bit: q ≡ 1 mod 32768
-            1099514314753,        // 41-bit: q ≡ 1 mod 32768
-            1099514478593,        // 41-bit: q ≡ 1 mod 32768
-            1099515691009,        // 41-bit: q ≡ 1 mod 32768
-            1099515789313,        // 41-bit: q ≡ 1 mod 32768
-            1099515985921,        // 41-bit: q ≡ 1 mod 32768
-            1099516182529,        // 41-bit: q ≡ 1 mod 32768
-        ];
-        let scale = 2f64.powi(40);
-        let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
-
-        let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
-        let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
-        Self { n, moduli, scale, error_std: 3.2, security: SecurityLevel::Bit192, inv_scale_mod_q, inv_q_top_mod_q, kappa_plain_mul }
+        Self {
+            n: 16384,
+            moduli: vec![
+                1152921504607338497,  // 60-bit: q ≡ 1 mod 32768
+                1099511922689,        // 41-bit: q ≡ 1 mod 32768
+                1099512938497,        // 41-bit: q ≡ 1 mod 32768
+                1099514314753,        // 41-bit: q ≡ 1 mod 32768
+                1099514478593,        // 41-bit: q ≡ 1 mod 32768
+                1099515691009,        // 41-bit: q ≡ 1 mod 32768
+                1099515789313,        // 41-bit: q ≡ 1 mod 32768
+                1099515985921,        // 41-bit: q ≡ 1 mod 32768
+                1099516182529,        // 41-bit: q ≡ 1 mod 32768
+            ],
+            scale: 2f64.powi(40),
+            error_std: 3.2,
+            security: SecurityLevel::Bit192,
+        }
     }
 
     /// Production parameters for 256-bit security (N=32768, depth-7)
     pub fn new_256bit() -> Self {
-        let n = 32768;
-        let moduli = vec![
-            1152921504608747521,  // 60-bit: q ≡ 1 mod 65536
-            1099512938497,        // 41-bit: q ≡ 1 mod 65536
-            1099514314753,        // 41-bit: q ≡ 1 mod 65536
-            1099515691009,        // 41-bit: q ≡ 1 mod 65536
-            1099516280833,        // 41-bit: q ≡ 1 mod 65536
-            1099516542977,        // 41-bit: q ≡ 1 mod 65536
-            1099516870657,        // 41-bit: q ≡ 1 mod 65536
-            1099518246913,        // 41-bit: q ≡ 1 mod 65536
-            1099520606209,        // 41-bit: q ≡ 1 mod 65536
-        ];
-        let scale = 2f64.powi(40);
-        let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
-
-        let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
-        let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
-        Self { n, moduli, scale, error_std: 3.2, security: SecurityLevel::Bit256, inv_scale_mod_q, inv_q_top_mod_q, kappa_plain_mul }
+        Self {
+            n: 32768,
+            moduli: vec![
+                1152921504608747521,  // 60-bit: q ≡ 1 mod 65536
+                1099512938497,        // 41-bit: q ≡ 1 mod 65536
+                1099514314753,        // 41-bit: q ≡ 1 mod 65536
+                1099515691009,        // 41-bit: q ≡ 1 mod 65536
+                1099516280833,        // 41-bit: q ≡ 1 mod 65536
+                1099516542977,        // 41-bit: q ≡ 1 mod 65536
+                1099516870657,        // 41-bit: q ≡ 1 mod 65536
+                1099518246913,        // 41-bit: q ≡ 1 mod 65536
+                1099520606209,        // 41-bit: q ≡ 1 mod 65536
+            ],
+            scale: 2f64.powi(40),
+            error_std: 3.2,
+            security: SecurityLevel::Bit256,
+        }
     }
 
     /// Get the prime for a specific level in the modulus chain
@@ -249,7 +223,7 @@ impl CliffordFHEParams {
         self.moduli.iter().all(|&q| (q - 1) % two_n == 0)
     }
 
-    /// Precompute scale inverses for all levels and primes (DEPRECATED)
+    /// Precompute scale inverses for all levels and primes
     /// Returns inv_scale_mod_q[level][prime_idx] = (scale mod q_i)^(-1) mod q_i
     fn precompute_inv_scale_mod_q(scale: f64, moduli: &[u64]) -> Vec<Vec<u64>> {
         let mut inv_scale_mod_q = Vec::new();
@@ -277,30 +251,6 @@ impl CliffordFHEParams {
         }
 
         inv_scale_mod_q
-    }
-
-    /// Precompute modulus inverses for rescale operation
-    /// Returns inv_q_top_mod_q[level-1][prime_idx] = q_level^(-1) mod q_i
-    /// For level L, compute q_L^(-1) mod q_i for all i < L
-    fn precompute_inv_q_top_mod_q(moduli: &[u64]) -> Vec<Vec<u64>> {
-        let mut inv_q_top_mod_q = Vec::new();
-
-        // For each level from 1 to max_level
-        for level in 1..moduli.len() {
-            let q_top = moduli[level];
-            let mut level_invs = Vec::new();
-
-            // Compute q_top^(-1) mod q_i for all i < level
-            for &q_i in &moduli[..level] {
-                let inv = Self::mod_inverse(q_top, q_i)
-                    .expect("Moduli must be coprime (distinct odd primes)");
-                level_invs.push(inv);
-            }
-
-            inv_q_top_mod_q.push(level_invs);
-        }
-
-        inv_q_top_mod_q
     }
 
     /// Compute modular inverse using extended Euclidean algorithm

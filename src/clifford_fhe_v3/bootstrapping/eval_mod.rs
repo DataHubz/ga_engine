@@ -366,14 +366,18 @@ mod tests {
         let (pk, sk, _) = key_ctx.keygen();
 
         // Encrypt value 5.0
-        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{encode_scalar, decode_scalar};
-        let ct = encode_scalar(5.0, &pk, &params).unwrap();
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{Plaintext, CkksContext};
+        let ckks_ctx = CkksContext::new(params.clone());
+        let pt = Plaintext::encode(&[5.0], params.scale, &params);
+        let ct = ckks_ctx.encrypt(&pt, &pk);
 
         // Multiply by 3.0
         let ct_result = multiply_by_constant(&ct, 3.0, &params).unwrap();
 
-        // Decrypt
-        let result = decode_scalar(&ct_result, &sk, &params).unwrap();
+        // Decrypt and decode
+        let pt_result = ckks_ctx.decrypt(&ct_result, &sk);
+        let result_vec = pt_result.decode(&params);
+        let result = result_vec[0];
 
         // Should be 15.0
         assert!((result - 15.0).abs() < 1.0, "Expected 15, got {}", result);
@@ -385,14 +389,21 @@ mod tests {
         let key_ctx = KeyContext::new(params.clone());
         let (pk, sk, _) = key_ctx.keygen();
 
-        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{encode_scalar, decode_scalar};
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{Plaintext, CkksContext};
+        let ckks_ctx = CkksContext::new(params.clone());
 
-        let ct1 = encode_scalar(5.0, &pk, &params).unwrap();
-        let ct2 = encode_scalar(3.0, &pk, &params).unwrap();
+        let pt1 = Plaintext::encode(&[5.0], params.scale, &params);
+        let ct1 = ckks_ctx.encrypt(&pt1, &pk);
+
+        let pt2 = Plaintext::encode(&[3.0], params.scale, &params);
+        let ct2 = ckks_ctx.encrypt(&pt2, &pk);
 
         let ct_sum = add_ciphertexts(&ct1, &ct2, &params).unwrap();
 
-        let result = decode_scalar(&ct_sum, &sk, &params).unwrap();
+        let pt_result = ckks_ctx.decrypt(&ct_sum, &sk);
+        let result_vec = pt_result.decode(&params);
+        let result = result_vec[0];
+
         assert!((result - 8.0).abs() < 1.0, "Expected 8, got {}", result);
     }
 
@@ -402,19 +413,24 @@ mod tests {
         let key_ctx = KeyContext::new(params.clone());
         let (pk, sk, evk) = key_ctx.keygen();
 
-        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{encode_scalar, decode_scalar};
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{Plaintext, CkksContext};
+        let ckks_ctx = CkksContext::new(params.clone());
 
         // Test with linear approximation: sin(x) ≈ x (just c₁ = 1, others = 0)
         let mut sin_coeffs = vec![0.0; 8];
         sin_coeffs[1] = 1.0;  // Linear term only
 
         // Encrypt x = 0.5
-        let ct = encode_scalar(0.5, &pk, &params).unwrap();
+        let pt = Plaintext::encode(&[0.5], params.scale, &params);
+        let ct = ckks_ctx.encrypt(&pt, &pk);
 
         // Evaluate: should return 0.5
         let ct_result = eval_sine_polynomial(&ct, &sin_coeffs, &evk, &params, &key_ctx).unwrap();
 
-        let result = decode_scalar(&ct_result, &sk, &params).unwrap();
+        let pt_result = ckks_ctx.decrypt(&ct_result, &sk);
+        let result_vec = pt_result.decode(&params);
+        let result = result_vec[0];
+
         assert!((result - 0.5).abs() < 0.1, "Linear sine: expected 0.5, got {}", result);
     }
 }

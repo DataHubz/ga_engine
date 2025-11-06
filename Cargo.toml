@@ -53,6 +53,7 @@ rand_distr = "0.4"  # For Gaussian distribution sampling (FHE)
 sha3 = "0.10"  # For SHAKE128/256 (deterministic RNG)
 num-bigint = "0.4"  # For arbitrary precision integers (RNS-CKKS with large Q)
 num-traits = "0.2"  # For Zero/One traits used with BigInt
+num-integer = "0.1"  # For Integer trait (div_floor for exact rescale)
 
 # Metal GPU support (optional, only on macOS with Apple Silicon)
 metal = { version = "0.27", optional = true }
