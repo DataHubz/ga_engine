@@ -141,6 +141,7 @@ impl EvaluationKey {
 }
 
 /// V2 Key Context with precomputed NTT transforms
+#[derive(Debug)]
 pub struct KeyContext {
     /// Parameters
     pub params: CliffordFHEParams,

@@ -36,8 +36,9 @@ pub mod rotation;
 pub mod coeff_to_slot;
 pub mod slot_to_coeff;
 
-// Future components (Phase 4)
-// mod eval_mod;
+// Phase 4 components (COMPLETE)
+mod eval_mod;
+mod diagonal_mult;
 
 pub use bootstrap_context::{BootstrapContext, BootstrapParams};
 pub use mod_raise::mod_raise;
@@ -46,3 +47,5 @@ pub use keys::{RotationKeys, RotationKey, galois_element_for_rotation, generate_
 pub use rotation::rotate;
 pub use coeff_to_slot::coeff_to_slot;
 pub use slot_to_coeff::slot_to_coeff;
+pub use eval_mod::eval_mod;
+pub use diagonal_mult::diagonal_mult;

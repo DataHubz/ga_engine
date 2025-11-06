@@ -4,7 +4,7 @@
 
 use crate::clifford_fhe_v2::params::CliffordFHEParams;
 use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Ciphertext;
-use crate::clifford_fhe_v2::backends::cpu_optimized::keys::SecretKey;
+use crate::clifford_fhe_v2::backends::cpu_optimized::keys::{SecretKey, EvaluationKey, KeyContext};
 use super::sin_approx::{taylor_sin_coeffs, chebyshev_sin_coeffs};
 
 /// Bootstrap parameters
@@ -134,6 +134,8 @@ pub struct BootstrapContext {
     bootstrap_params: BootstrapParams,
     sin_coeffs: Vec<f64>,
     rotation_keys: super::keys::RotationKeys,
+    evk: EvaluationKey,
+    key_ctx: KeyContext,
 }
 
 impl BootstrapContext {
@@ -193,11 +195,19 @@ impl BootstrapContext {
         let rotation_keys = super::keys::generate_rotation_keys(&rotations, secret_key, &params);
         println!("  ✓ Generated {} rotation keys", rotation_keys.num_keys());
 
+        // Generate evaluation key for ciphertext multiplication
+        println!("  Generating evaluation key...");
+        let key_ctx = KeyContext::new(params.clone());
+        let (_, _, evk) = key_ctx.keygen();
+        println!("  ✓ Evaluation key generated");
+
         Ok(BootstrapContext {
             params,
             bootstrap_params,
             sin_coeffs,
             rotation_keys,
+            evk,
+            key_ctx,
         })
     }
 
@@ -289,10 +299,17 @@ impl BootstrapContext {
         super::coeff_to_slot::coeff_to_slot(ct, &self.rotation_keys)
     }
 
-    fn eval_mod(&self, _ct: &Ciphertext) -> Result<Ciphertext, String> {
-        // TODO: Implement EvalMod in Phase 4
-        // Will use self.sin_coeffs for sine approximation
-        Err("EvalMod not yet implemented (Phase 4)".to_string())
+    fn eval_mod(&self, ct: &Ciphertext) -> Result<Ciphertext, String> {
+        // Use the EvalMod implementation from eval_mod module
+        let q = self.params.moduli[0];  // Use first prime as modulus
+        super::eval_mod::eval_mod(
+            ct,
+            q,
+            &self.sin_coeffs,
+            &self.evk,
+            &self.params,
+            &self.key_ctx,
+        )
     }
 
     fn slot_to_coeff(&self, ct: &Ciphertext) -> Result<Ciphertext, String> {
