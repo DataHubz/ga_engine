@@ -146,10 +146,10 @@ mod tests {
     }
 
     #[test]
-    #[ignore]  // Ignore until rotation is fixed
     fn test_coeff_slot_roundtrip() {
         // Test that SlotToCoeff(CoeffToSlot(x)) ≈ x
-        let params = CliffordFHEParams::new_128bit();
+        // Use small params for faster testing (n=1024 needs fewer rotation keys)
+        let params = CliffordFHEParams::new_test_ntt_1024();
         let key_ctx = KeyContext::new(params.clone());
         let (pk, sk, _) = key_ctx.keygen();
         let ckks_ctx = CkksContext::new(params.clone());
@@ -162,13 +162,9 @@ mod tests {
         let pt = ckks_ctx.encode(&message);
         let ct_original = ckks_ctx.encrypt(&pt, &pk);
 
-        // Generate all required rotation keys
-        let mut rotations = Vec::new();
-        for i in 0..5 {  // ±1, ±2, ±4, ±8, ±16
-            let r = 1 << i;
-            rotations.push(r);
-            rotations.push(-r);
-        }
+        // Generate all required rotation keys for bootstrap
+        use crate::clifford_fhe_v3::bootstrapping::keys::required_rotations_for_bootstrap;
+        let rotations = required_rotations_for_bootstrap(params.n);
         let rotation_keys = generate_rotation_keys(&rotations, &sk, &params);
 
         // Apply CoeffToSlot then SlotToCoeff

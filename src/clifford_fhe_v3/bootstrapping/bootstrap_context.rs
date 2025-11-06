@@ -388,31 +388,45 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Slow test: requires generating many rotation keys for V3 params
     fn test_sin_coeffs_precomputed() {
-        // Use V3 bootstrap params which have sufficient moduli (9 primes)
-        let params = CliffordFHEParams::new_v3_bootstrap_minimal();
-        let key_ctx = KeyContext::new(params.clone());
-        let (_, secret_key, _) = key_ctx.keygen();
+        // Test that sine coefficients are computed correctly
+        // Use chebyshev_sin_coeffs directly (no need for full BootstrapContext)
+        use crate::clifford_fhe_v3::bootstrapping::sin_approx::chebyshev_sin_coeffs;
 
-        // Use default bootstrap params (includes bootstrap_levels=10)
-        let bootstrap_params = BootstrapParams::fast();
+        let sin_degree = 15;  // From BootstrapParams::fast()
+        let coeffs = chebyshev_sin_coeffs(sin_degree);
 
-        let bootstrap_ctx = BootstrapContext::new(
-            params,
-            bootstrap_params,
-            &secret_key,
-        ).unwrap();
+        // Verify we got the right number of coefficients
+        assert_eq!(coeffs.len(), sin_degree + 1);  // degree 15 + 1 = 16
 
-        // Verify coefficients were computed
-        let coeffs = bootstrap_ctx.sin_coeffs();
-        assert_eq!(coeffs.len(), 16);  // degree 15 + 1
-
-        // Verify odd function (even powers are zero)
+        // Verify odd function (even powers except constant should be zero)
         for i in 0..coeffs.len() {
             if i % 2 == 0 && i > 0 {
-                assert_eq!(coeffs[i], 0.0);
+                assert!(
+                    coeffs[i].abs() < 1e-10,
+                    "Coefficient {} should be ~0 (odd function), got {}",
+                    i,
+                    coeffs[i]
+                );
             }
         }
+
+        // Verify some non-zero odd coefficients exist (indices 1, 3, 5, ...)
+        let odd_sum: f64 = (1..coeffs.len())
+            .step_by(2)  // This gives 1, 3, 5, 7, ... (odd indices)
+            .map(|i| coeffs[i].abs())
+            .sum();
+        assert!(
+            odd_sum > 0.1,
+            "Odd coefficients should be non-zero, sum = {}",
+            odd_sum
+        );
+
+        // Verify first coefficient is 1.0 (x term in sin(x) = x - x³/3! + ...)
+        assert!(
+            (coeffs[1] - 1.0).abs() < 1e-10,
+            "First non-zero coefficient should be 1.0, got {}",
+            coeffs[1]
+        );
     }
 }
