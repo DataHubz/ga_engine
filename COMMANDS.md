@@ -2,8 +2,29 @@
 
 Complete reference of all build, test, example, and benchmark commands for GA Engine.
 
+## Important: Feature Flags
+
+GA Engine uses feature flags to control which components are compiled:
+
+**Default features** (local development):
+```bash
+cargo build --release  # Includes: v1, lattice-reduction
+```
+
+**Cloud GPU instances** (omit lattice-reduction to avoid build issues):
+```bash
+cargo build --release --features v2-gpu-cuda --no-default-features
+```
+
+**Key points**:
+- `lattice-reduction` is included by default for local development
+- Use `--no-default-features` on cloud GPU instances to skip lattice reduction
+- Lattice reduction is CPU-only security analysis, not needed for FHE operations
+- See [FEATURE_FLAGS.md](FEATURE_FLAGS.md) for detailed explanation
+
 ## Table of Contents
 
+- [Important: Feature Flags](#important-feature-flags)
 - [Installation](#installation)
 - [V1: Baseline Reference](#v1-baseline-reference)
 - [V2: CPU Optimized](#v2-cpu-optimized)
@@ -12,6 +33,8 @@ Complete reference of all build, test, example, and benchmark commands for GA En
 - [V3: Bootstrapping](#v3-bootstrapping)
 - [Lattice Reduction](#lattice-reduction)
 - [All Versions Combined](#all-versions-combined)
+- [Quick Reference Tables](#quick-reference-tables)
+- [Troubleshooting](#troubleshooting)
 
 ## Installation
 
@@ -32,98 +55,101 @@ cd ga_engine
 
 ### Build V1
 ```bash
-# Development build
-cargo build --features v1
+# Development build (without lattice-reduction, RECOMMENDED)
+cargo build --features f64,nd,v1 --no-default-features
 
-# Release build (optimized)
-cargo build --release --features v1
+# Release build (optimized, RECOMMENDED)
+cargo build --release --features f64,nd,v1 --no-default-features
 ```
 
 ### Test V1
 ```bash
 # Run all V1 unit tests (31 tests)
-cargo test --lib --features v1
+cargo test --lib --features f64,nd,v1 --no-default-features
 
 # Run V1 integration tests
-cargo test --test clifford_fhe_integration_tests --features v1 -- --nocapture
+cargo test --test clifford_fhe_integration_tests --features f64,nd,v1 --no-default-features -- --nocapture
 
 # Run comprehensive geometric operations test suite (all 7 operations)
-cargo test --test test_geometric_operations --features v1 -- --nocapture
+cargo test --test test_geometric_operations --features f64,nd,v1 --no-default-features -- --nocapture
 
 # Run isolated operation tests (individual tests for clean output)
-cargo test --test test_clifford_operations_isolated test_key_generation --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_encryption_decryption --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_reverse --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_geometric_product --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_wedge_product --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_inner_product --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_rotation --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_projection --features v1 -- --nocapture
-cargo test --test test_clifford_operations_isolated test_rejection --features v1 -- --nocapture
+cargo test --test test_clifford_operations_isolated test_key_generation --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_encryption_decryption --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_reverse --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_geometric_product --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_wedge_product --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_inner_product --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_rotation --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_projection --features f64,nd,v1 --no-default-features -- --nocapture
+cargo test --test test_clifford_operations_isolated test_rejection --features f64,nd,v1 --no-default-features -- --nocapture
 
 # Run all V1 tests
-cargo test --features v1
+cargo test --features f64,nd,v1 --no-default-features
 ```
 
 ### Examples V1
 ```bash
 # Encrypted 3D classification demo (main application)
-cargo run --release --features v1 --example encrypted_3d_classification
+cargo run --release --features f64,nd,v1 --no-default-features --example encrypted_3d_classification
 
 # Basic FHE encryption/decryption
-cargo run --release --features v1 --example clifford_fhe_basic
+cargo run --release --features f64,nd,v1 --no-default-features --example clifford_fhe_basic
 ```
 
 ### Performance V1
 ```bash
-# Expected performance:
-# - Geometric product: 13 seconds
-# - Rotation (depth-2): 26 seconds
-# - Projection (depth-3): 115 seconds
-# - Full network inference: ~361 seconds
+# Actual performance (Apple M3 Max, 14-core):
+# - Geometric product: 11.42 seconds
+# - Full network inference: 308.3 seconds (27 operations)
+# - Error: <1.30e-10
 ```
 
 ## V2: CPU Optimized
 
 ### Build V2 CPU
 ```bash
-# Development build
-cargo build --features v2
+# Development build (without lattice-reduction, RECOMMENDED)
+cargo build --features f64,nd,v2 --no-default-features
 
-# Release build (optimized, recommended)
-cargo build --release --features v2
+# Release build (optimized, RECOMMENDED)
+cargo build --release --features f64,nd,v2 --no-default-features
 ```
 
 ### Test V2 CPU
 ```bash
-# Run all V2 unit tests (127 tests, <1 second)
-cargo test --lib --features v2
+# Run all V2 unit tests (132 tests, <1 second)
+cargo test --lib --features f64,nd,v2 --no-default-features
 
 # Run specific module tests
-cargo test --lib clifford_fhe_v2::backends::cpu_optimized::ntt --features v2 -- --nocapture
-cargo test --lib clifford_fhe_v2::backends::cpu_optimized::rns --features v2 -- --nocapture
-cargo test --lib clifford_fhe_v2::backends::cpu_optimized::ckks --features v2 -- --nocapture
-cargo test --lib clifford_fhe_v2::backends::cpu_optimized::keys --features v2 -- --nocapture
-cargo test --lib clifford_fhe_v2::backends::cpu_optimized::multiplication --features v2 -- --nocapture
-cargo test --lib clifford_fhe_v2::backends::cpu_optimized::geometric --features v2 -- --nocapture
+cargo test --lib clifford_fhe_v2::backends::cpu_optimized::ntt --features f64,nd,v2 --no-default-features -- --nocapture
+cargo test --lib clifford_fhe_v2::backends::cpu_optimized::rns --features f64,nd,v2 --no-default-features -- --nocapture
+cargo test --lib clifford_fhe_v2::backends::cpu_optimized::ckks --features f64,nd,v2 --no-default-features -- --nocapture
+cargo test --lib clifford_fhe_v2::backends::cpu_optimized::keys --features f64,nd,v2 --no-default-features -- --nocapture
+cargo test --lib clifford_fhe_v2::backends::cpu_optimized::multiplication --features f64,nd,v2 --no-default-features -- --nocapture
+cargo test --lib clifford_fhe_v2::backends::cpu_optimized::geometric --features f64,nd,v2 --no-default-features -- --nocapture
 
 # Run V2 geometric operations integration test
-cargo test --test test_geometric_operations_v2 --features v2 -- --nocapture
+cargo test --test test_geometric_operations_v2 --features f64,nd,v2 --no-default-features -- --nocapture
 ```
 
 ### Examples V2 CPU
 ```bash
-# Encrypted 3D classification (30x faster than V1)
-cargo run --release --features v2 --example encrypted_3d_classification
+# Encrypted 3D classification (38x faster than V1)
+cargo run --release --features f64,nd,v2 --no-default-features --example encrypted_3d_classification
 ```
 
 ### Performance V2 CPU
 ```bash
-# Expected performance (14-core Apple M3 Max):
-# - Geometric product: 441ms (30x faster than V1)
-# - Keygen: 16ms (3.2x faster)
-# - Encryption: 2.7ms (4.2x faster)
-# - Decryption: 1.3ms (4.4x faster)
+# Actual performance (Apple M3 Max, 14-core):
+# - Geometric product: 0.30s (38x faster than V1)
+# - Rotation (depth-2): 0.43s
+# - Wedge product: 0.54s
+# - Inner product: 0.53s
+# - Projection (depth-3): 0.67s
+# - Rejection (depth-3): 0.67s
+# - Keygen: 0.01s
+# - Error: <9.67e-8 (all operations)
 ```
 
 ## V2: Metal GPU
@@ -133,22 +159,25 @@ cargo run --release --features v2 --example encrypted_3d_classification
 # Install Xcode Command Line Tools (macOS only)
 xcode-select --install
 
-# Build with Metal support
-cargo build --release --features v2-gpu-metal
+# Build with Metal support (RECOMMENDED: without lattice-reduction)
+cargo build --release --features f64,nd,v2-gpu-metal --no-default-features
 ```
 
 ### Test V2 Metal
 ```bash
 # Run Metal GPU geometric operations test (includes benchmarking)
-cargo test --release --features v2-gpu-metal --test test_geometric_operations_metal -- --nocapture
+cargo test --release --features f64,nd,v2-gpu-metal --no-default-features --test test_geometric_operations_metal -- --nocapture
 ```
 
 ### Performance V2 Metal
 ```bash
-# Expected performance (Apple M3 Max GPU):
-# - Geometric product: 34ms (387x faster than V1, 13x faster than V2 CPU)
-# - Throughput: 25 operations/second
-# - Statistical analysis: 10 iterations with mean/min/max/std dev
+# Actual performance (Apple M3 Max GPU):
+# - Geometric product: 33ms mean (30ms min, 37ms max)
+# - Speedup: 346× vs V1 (11.42s → 0.033s)
+# - Speedup: 9.1× vs V2 CPU (0.30s → 0.033s)
+# - Throughput: 30.3 operations/second
+# - Standard deviation: 2.6ms (7.8% CV)
+# - Statistical confidence: High (n=10 iterations)
 ```
 
 ## V2: CUDA GPU
@@ -162,14 +191,14 @@ nvcc --version
 export CUDA_PATH=/usr/local/cuda
 export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
 
-# Build with CUDA support
-cargo build --release --features v2-gpu-cuda
+# Build with CUDA support (RECOMMENDED for cloud GPU instances)
+cargo build --release --features f64,nd,v2-gpu-cuda --no-default-features
 ```
 
 ### Test V2 CUDA
 ```bash
-# Run CUDA GPU geometric operations test (includes benchmarking)
-cargo test --release --features v2-gpu-cuda --test test_geometric_operations_cuda -- --nocapture
+# Run CUDA GPU geometric operations test (RECOMMENDED for cloud instances)
+cargo test --release --features f64,nd,v2-gpu-cuda --no-default-features --test test_geometric_operations_cuda -- --nocapture
 ```
 
 ### Performance V2 CUDA
@@ -231,50 +260,64 @@ cargo run --release --features v2,v3 --example medical_imaging_encrypted
 
 ## Lattice Reduction
 
+Lattice reduction is used for **security analysis** (cryptanalysis) of the FHE scheme. It is **not required** for FHE operations.
+
+**Note**: When building for GPU backends (CUDA/Metal), you can omit the `lattice-reduction` feature to avoid netlib-src/simba build issues. Lattice reduction is CPU-only and not needed for FHE performance benchmarking.
+
 ### Build Lattice Reduction
 ```bash
-# No special features required
-cargo build --release
+# With lattice reduction (default for local development)
+cargo build --release --features lattice-reduction
+
+# Without lattice reduction (for GPU builds on cloud instances)
+cargo build --release --features v2-gpu-cuda
+# (omitting lattice-reduction avoids netlib-src Fortran compilation)
 ```
 
 ### Test Lattice Reduction
 ```bash
 # Run all lattice reduction tests (95 tests)
-cargo test --lib lattice_reduction
+# Requires lattice-reduction feature
+cargo test --lib lattice_reduction --features lattice-reduction
 
 # Run specific module tests
-cargo test --lib lattice_reduction::stable_gso
-cargo test --lib lattice_reduction::bkz_stable
-cargo test --lib lattice_reduction::ga_lll
-cargo test --lib lattice_reduction::enumeration
+cargo test --lib lattice_reduction::stable_gso --features lattice-reduction
+cargo test --lib lattice_reduction::bkz_stable --features lattice-reduction
+cargo test --lib lattice_reduction::ga_lll --features lattice-reduction
+cargo test --lib lattice_reduction::enumeration --features lattice-reduction
 ```
 
 ### Examples Lattice Reduction
 ```bash
-# Lattice reduction demonstration with GA-accelerated BKZ
-cargo run --release --example lattice_reduction_demo
+# Lattice reduction examples (all require lattice-reduction feature)
+cargo run --release --features lattice-reduction --example test_stable_bkz
+cargo run --release --features lattice-reduction --example test_lll
+cargo run --release --features lattice-reduction --example benchmark_lll_comparison
 ```
 
 ## All Versions Combined
 
 ### Build All
 ```bash
-# Build all versions (V1, V2, V3)
-cargo build --release --features v1,v2,v3
+# Build all versions (V1, V2) without lattice reduction (RECOMMENDED)
+cargo build --release --features f64,nd,v1,v2 --no-default-features
 
 # Build with GPU support
-cargo build --release --features v1,v2,v2-gpu-metal,v3  # macOS
-cargo build --release --features v1,v2,v2-gpu-cuda,v3   # Linux
+cargo build --release --features f64,nd,v1,v2,v2-gpu-metal --no-default-features  # macOS
+cargo build --release --features f64,nd,v1,v2,v2-gpu-cuda --no-default-features   # Linux/Cloud GPU
 ```
 
 ### Test All
 ```bash
-# Run all tests across all versions
-cargo test --features v1,v2,v3
+# Run all tests across all versions (without lattice reduction, RECOMMENDED)
+cargo test --features f64,nd,v1,v2 --no-default-features
 
 # Run all tests including GPU backends
-cargo test --features v1,v2,v2-gpu-metal,v3  # macOS
-cargo test --features v1,v2,v2-gpu-cuda,v3   # Linux
+cargo test --features f64,nd,v1,v2,v2-gpu-metal --no-default-features  # macOS
+cargo test --features f64,nd,v1,v2,v2-gpu-cuda --no-default-features   # Linux/Cloud GPU
+
+# Run with lattice reduction (requires working CMake)
+cargo test --features v1,v2,lattice-reduction
 ```
 
 ### Benchmarks
@@ -305,9 +348,10 @@ cargo doc --open --features v2,v3
 |---------|-------------|--------------|
 | `v1` | V1 baseline reference implementation | V1 examples and tests |
 | `v2` | V2 CPU-optimized backend (Rayon parallel) | V2 CPU examples and tests |
-| `v2-gpu-metal` | V2 Metal GPU backend (Apple Silicon) | Metal GPU tests |
-| `v2-gpu-cuda` | V2 CUDA GPU backend (NVIDIA) | CUDA GPU tests |
+| `v2-gpu-metal` | V2/V3 Metal GPU backend (Apple Silicon) | Metal GPU tests (V2/V3) |
+| `v2-gpu-cuda` | V2/V3 CUDA GPU backend (NVIDIA) | CUDA GPU tests (V2/V3) |
 | `v3` | V3 bootstrapping and SIMD batching | V3 examples and tests |
+| `lattice-reduction` | Lattice reduction for security analysis | Lattice reduction tests and examples |
 
 ### Test Counts
 
@@ -316,8 +360,8 @@ cargo doc --open --features v2,v3
 | V1 Unit Tests | 31 | `cargo test --lib --features v1` |
 | V2 Unit Tests | 127 | `cargo test --lib --features v2` |
 | V3 Unit Tests | 100 | `cargo test --lib --features v2,v3` |
-| Lattice Reduction | 95 | `cargo test --lib lattice_reduction` |
-| **Total** | **353** | `cargo test --features v1,v2,v3` |
+| Lattice Reduction | 95 | `cargo test --lib lattice_reduction --features lattice-reduction` |
+| **Total** | **353** | `cargo test --features v1,v2,v3,lattice-reduction` |
 
 ### Performance Summary
 
@@ -353,6 +397,22 @@ export CUDA_PATH=/usr/local/cuda
 export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
 ```
 
+**Problem**: Build stuck at netlib-src or CMake errors
+```bash
+# Root cause: Lattice reduction dependencies (nalgebra → simba, netlib-src)
+# cause build issues due to CMake/Fortran compilation
+
+# Solution: Build without lattice-reduction using --no-default-features
+cargo clean
+cargo build --release --features f64,nd,v2-gpu-cuda --no-default-features
+
+# Then run tests
+cargo test --release --features f64,nd,v2-gpu-cuda --no-default-features --test test_geometric_operations_cuda -- --nocapture
+
+# Note: Always add f64,nd when using --no-default-features
+# These are required base features for FHE operations
+```
+
 ### Test Failures
 
 **Problem**: Tests timing out
@@ -365,6 +425,17 @@ cargo test --release --features v1,v2,v3
 ```bash
 # Solution: Run test in isolation with nocapture
 cargo test --lib specific_test_name --features v2 -- --nocapture
+```
+
+**Problem**: Lattice reduction tests not found
+```bash
+# Root cause: Built without lattice-reduction feature
+
+# Solution: Add lattice-reduction feature
+cargo test --lib lattice_reduction --features lattice-reduction
+
+# Or use default features (which include lattice-reduction)
+cargo test --lib lattice_reduction
 ```
 
 ### Performance Issues
@@ -382,7 +453,9 @@ cargo run --release --features v2 --example encrypted_3d_classification
 
 ## Additional Resources
 
+- **Feature Flags Guide**: See [FEATURE_FLAGS.md](FEATURE_FLAGS.md)
 - **Installation Guide**: See [INSTALLATION.md](INSTALLATION.md)
+- **CUDA Build Notes**: See [CUDA_BUILD_NOTES.md](CUDA_BUILD_NOTES.md)
 - **Architecture Details**: See [ARCHITECTURE.md](ARCHITECTURE.md)
 - **Performance Benchmarks**: See [BENCHMARKS.md](BENCHMARKS.md)
 - **V3 Bootstrapping**: See [V3_BOOTSTRAP.md](V3_BOOTSTRAP.md)

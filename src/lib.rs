@@ -59,7 +59,8 @@ pub mod nd;
 // Medical imaging applications
 pub mod medical_imaging;
 
-// Lattice reduction for cryptanalysis
+// Lattice reduction for cryptanalysis (optional, enabled by lattice-reduction feature)
+#[cfg(feature = "lattice-reduction")]
 pub mod lattice_reduction;
 
 // --- Public API exports ---

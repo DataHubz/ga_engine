@@ -125,7 +125,9 @@ Conservative estimate: λ ≥ 118 bits
 | Document | Description |
 |----------|-------------|
 | **[COMMANDS.md](COMMANDS.md)** | Complete command reference for all builds, tests, and examples |
+| **[FEATURE_FLAGS.md](FEATURE_FLAGS.md)** | Feature flag reference and build configuration patterns |
 | **[INSTALLATION.md](INSTALLATION.md)** | Setup guide, system requirements, build instructions |
+| **[CUDA_BUILD_NOTES.md](CUDA_BUILD_NOTES.md)** | CUDA build configuration and troubleshooting for cloud GPU instances |
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | System design, V1/V2/V3 comparison, backend architecture |
 | **[BENCHMARKS.md](BENCHMARKS.md)** | Performance benchmarks and optimization techniques |
 | **[V3_BOOTSTRAP.md](V3_BOOTSTRAP.md)** | V3 bootstrapping implementation and testing |
