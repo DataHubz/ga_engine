@@ -458,6 +458,16 @@ impl MetalNttContext {
         Self::mont_mul_cpu(x, r_squared, q, q_inv)
     }
 
+    /// Access psi powers (for twist/untwist in CKKS polynomial multiplication)
+    pub fn psi_powers(&self) -> &[u64] {
+        &self.psi_powers
+    }
+
+    /// Access psi inverse powers (for twist/untwist in CKKS polynomial multiplication)
+    pub fn psi_inv_powers(&self) -> &[u64] {
+        &self.psi_inv_powers
+    }
+
     /// CPU implementation of Montgomery multiplication for precomputation
     ///
     /// Same algorithm as GPU mont_mul kernel

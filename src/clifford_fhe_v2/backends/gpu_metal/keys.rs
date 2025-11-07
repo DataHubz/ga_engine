@@ -248,6 +248,7 @@ impl MetalKeyContext {
     /// Multiply two polynomials using Metal GPU NTT
     ///
     /// This is the key performance optimization - all NTT operations run on GPU.
+    /// Uses NEGACYCLIC convolution (mod x^n + 1) via twist/untwist, matching CPU implementation.
     fn multiply_polynomials_gpu(
         &self,
         a: &[RnsRepresentation],
@@ -265,16 +266,34 @@ impl MetalKeyContext {
             let mut a_prime: Vec<u64> = a.iter().map(|rns| rns.values[prime_idx]).collect();
             let mut b_prime: Vec<u64> = b.iter().map(|rns| rns.values[prime_idx]).collect();
 
+            let ntt_ctx = &self.ntt_contexts[prime_idx];
+
+            // CRITICAL: Apply twist/untwist for negacyclic convolution (mod x^n + 1)
+            // This matches CPU key generation and ensures consistency with CKKS ring structure
+
+            // TWIST: multiply by psi^i (converts negacyclic → cyclic)
+            let psi_powers = ntt_ctx.psi_powers();
+            for i in 0..n {
+                a_prime[i] = Self::mul_mod(a_prime[i], psi_powers[i], q);
+                b_prime[i] = Self::mul_mod(b_prime[i], psi_powers[i], q);
+            }
+
             // Forward NTT on GPU
-            self.ntt_contexts[prime_idx].forward(&mut a_prime)?;
-            self.ntt_contexts[prime_idx].forward(&mut b_prime)?;
+            ntt_ctx.forward(&mut a_prime)?;
+            ntt_ctx.forward(&mut b_prime)?;
 
             // Pointwise multiply on GPU
             let mut c_prime = vec![0u64; n];
-            self.ntt_contexts[prime_idx].pointwise_multiply(&a_prime, &b_prime, &mut c_prime)?;
+            ntt_ctx.pointwise_multiply(&a_prime, &b_prime, &mut c_prime)?;
 
             // Inverse NTT on GPU
-            self.ntt_contexts[prime_idx].inverse(&mut c_prime)?;
+            ntt_ctx.inverse(&mut c_prime)?;
+
+            // UNTWIST: multiply by psi^{-i} (converts cyclic → negacyclic)
+            let psi_inv_powers = ntt_ctx.psi_inv_powers();
+            for i in 0..n {
+                c_prime[i] = Self::mul_mod(c_prime[i], psi_inv_powers[i], q);
+            }
 
             // Store results
             if prime_idx == 0 {
@@ -396,8 +415,16 @@ impl MetalKeyContext {
     /// Find primitive 2n-th root of unity mod q (psi)
     ///
     /// For twisted NTT (negacyclic convolution), we need q ≡ 1 (mod 2n).
+    /// Modular multiplication helper
+    fn mul_mod(a: u64, b: u64, q: u64) -> u64 {
+        ((a as u128 * b as u128) % q as u128) as u64
+    }
+
     /// Returns psi where psi^(2n) ≡ 1 mod q.
     /// Then omega = psi^2 is the n-th root used for standard NTT.
+    ///
+    /// FIXED: Removed over-constrained quadratic non-residue check and strict psi^n == -1 requirement.
+    /// We only need: psi^(2n) = 1 and psi^n ≠ 1 for a primitive 2n-th root.
     fn find_primitive_2n_root(n: usize, q: u64) -> Result<u64, String> {
         // Verify q ≡ 1 (mod 2n)
         let two_n = (2 * n) as u64;
@@ -405,42 +432,54 @@ impl MetalKeyContext {
             return Err(format!("q = {} is not NTT-friendly for n = {} (q-1 must be divisible by 2n)", q, n));
         }
 
-        // Try small candidates that are often generators (same as CPU backend)
-        for candidate in [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31] {
-            if Self::is_primitive_root_candidate(candidate, n, q) {
-                let exponent = (q - 1) / two_n;
-                return Ok(Self::pow_mod(candidate, exponent, q));
+        let exp = (q - 1) / two_n;
+
+        // Try small bases first (fast and works in practice)
+        for g in [2u64, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31] {
+            let psi = Self::pow_mod(g % q, exp, q);
+            // Check: psi != 1, psi^(2n) = 1, psi^n != 1
+            if psi != 1
+                && Self::pow_mod(psi, two_n, q) == 1
+                && Self::pow_mod(psi, n as u64, q) != 1
+            {
+                eprintln!("    Found psi={} from generator g={}", psi, g);
+                return Ok(psi);
             }
         }
 
-        // Fallback: more extensive search
-        for candidate in 32..1000u64 {
-            if Self::is_primitive_root_candidate(candidate, n, q) {
-                let exponent = (q - 1) / two_n;
-                return Ok(Self::pow_mod(candidate, exponent, q));
+        // Fallback: more extensive search (increased range for robustness)
+        for g in 32u64..20000 {
+            let psi = Self::pow_mod(g % q, exp, q);
+            if psi != 1
+                && Self::pow_mod(psi, two_n, q) == 1
+                && Self::pow_mod(psi, n as u64, q) != 1
+            {
+                eprintln!("    Found psi={} from generator g={}", psi, g);
+                return Ok(psi);
             }
         }
 
-        Err(format!("Failed to find primitive root for q = {}, n = {}", q, n))
+        Err(format!("Failed to find primitive root for q = {}, n = {} after 20000 candidates", q, n))
     }
 
-    /// Check if g is suitable for generating primitive 2n-th root (same logic as CPU backend)
-    fn is_primitive_root_candidate(g: u64, n: usize, q: u64) -> bool {
-        // Check if g is a quadratic non-residue
+    /// DEPRECATED: Old over-constrained verification - keeping for reference but not used
+    #[allow(dead_code)]
+    fn is_primitive_root_candidate_old(g: u64, n: usize, q: u64) -> bool {
+        // This was TOO STRICT: requiring g to be quadratic non-residue
+        // unnecessarily filtered out valid generators
         if Self::pow_mod(g, (q - 1) / 2, q) == 1 {
             return false;
         }
 
-        // Check if g^((q-1)/(2n)) generates the subgroup of order 2n
         let psi = Self::pow_mod(g, (q - 1) / (2 * n as u64), q);
 
-        // psi^n should equal -1 mod q
+        // This was TOO STRICT: requiring psi^n == q-1 exactly
+        // We only need psi^n != 1 for primitive 2n-th root
         let psi_n = Self::pow_mod(psi, n as u64, q);
         if psi_n != q - 1 {
             return false;
         }
 
-        // psi^(2n) should equal 1 mod q
         let psi_2n = Self::pow_mod(psi, 2 * n as u64, q);
         psi_2n == 1
     }

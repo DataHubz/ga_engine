@@ -102,6 +102,80 @@ impl Plaintext {
         Self::new(rns_coeffs, scale, level)
     }
 
+    /// Encode values at a specific level (for bootstrap operations)
+    ///
+    /// **CRITICAL for bootstrap**: This ensures the plaintext has the same RNS basis
+    /// as a ciphertext at the given level, preventing moduli mismatch errors.
+    ///
+    /// During bootstrap operations like EvalMod, we need to encode helper plaintexts
+    /// (sine coefficients, scaling constants, etc.) that will be added/multiplied
+    /// with ciphertexts. These plaintexts MUST have the exact same number of primes
+    /// as the ciphertext they operate with.
+    ///
+    /// # Arguments
+    /// * `values` - Float values to encode (length ≤ n/2 for CKKS)
+    /// * `scale` - Scaling factor for fixed-point representation
+    /// * `params` - CKKS parameters
+    /// * `level` - Target level (determines which moduli to use: [0..=level])
+    ///
+    /// # Returns
+    /// Encoded plaintext with RNS representation matching the target level
+    ///
+    /// # Example
+    /// ```
+    /// // Encode for a ciphertext at level 15 (uses primes [0..=15])
+    /// let pt = Plaintext::encode_at_level(&values, params.scale, &params, 15);
+    /// let ct_result = ct.add_plain(&pt); // No moduli mismatch!
+    /// ```
+    pub fn encode_at_level(values: &[f64], scale: f64, params: &CliffordFHEParams, level: usize) -> Self {
+        let n = params.n;
+
+        assert!(
+            values.len() <= n / 2,
+            "Too many values: {} > n/2 = {}",
+            values.len(),
+            n / 2
+        );
+
+        assert!(
+            level <= params.max_level(),
+            "Level {} exceeds max_level {}",
+            level,
+            params.max_level()
+        );
+
+        // Encode using canonical embedding with orbit ordering
+        let coeffs_vec = canonical_embed_encode_real(values, scale, n);
+
+        // Convert to RNS representation using ONLY the moduli up to the target level
+        let moduli: Vec<u64> = params.moduli[..=level].to_vec();
+        let mut rns_coeffs = Vec::with_capacity(n);
+
+        for &coeff in &coeffs_vec {
+            // Handle negative coefficients by converting to positive mod q
+            let values: Vec<u64> = moduli
+                .iter()
+                .map(|&q| {
+                    if coeff >= 0 {
+                        (coeff as u64) % q
+                    } else {
+                        let abs_coeff = (-coeff) as u64;
+                        let remainder = abs_coeff % q;
+                        if remainder == 0 {
+                            0
+                        } else {
+                            q - remainder
+                        }
+                    }
+                })
+                .collect();
+
+            rns_coeffs.push(RnsRepresentation::new(values, moduli.clone()));
+        }
+
+        Self::new(rns_coeffs, scale, level)
+    }
+
     /// Encode values for use in multiply_plain operations
     ///
     /// **IMPORTANT:** This is just an alias for the standard encode().
@@ -811,6 +885,22 @@ impl CkksContext {
     /// Encode float values to plaintext
     pub fn encode(&self, values: &[f64]) -> Plaintext {
         Plaintext::encode(values, self.params.scale, &self.params)
+    }
+
+    /// Encode values at a specific level (for bootstrap operations)
+    ///
+    /// This ensures the plaintext has the same RNS basis as a ciphertext at the given level.
+    /// **CRITICAL for bootstrap**: All encode operations must match the ciphertext's level
+    /// to avoid moduli mismatch errors.
+    ///
+    /// # Arguments
+    /// * `values` - Float values to encode
+    /// * `level` - Target level (determines which moduli to use: [0..=level])
+    ///
+    /// # Returns
+    /// Plaintext with RNS representation matching the target level
+    pub fn encode_at_level(&self, values: &[f64], level: usize) -> Plaintext {
+        Plaintext::encode_at_level(values, self.params.scale, &self.params, level)
     }
 
     /// Decode plaintext to float values

@@ -291,7 +291,8 @@ impl MetalCkksContext {
         let pk_b_flat = Self::rns_vec_to_flat(&pk.b, num_primes);
 
         // c0 = b*u + e0 + m (using Metal NTT for multiplication)
-        let bu = self.multiply_polys_flat_ntt(&pk_b_flat, &u_flat, moduli)?;
+        // CRITICAL: Use negacyclic convolution to match CPU and CKKS ring R = Z[x]/(x^n + 1)
+        let bu = self.multiply_polys_flat_ntt_negacyclic(&pk_b_flat, &u_flat, moduli)?;
         let mut c0 = vec![0u64; n * num_primes];
         for i in 0..(n * num_primes) {
             let prime_idx = i % num_primes;
@@ -305,7 +306,8 @@ impl MetalCkksContext {
         }
 
         // c1 = a*u + e1 (using Metal NTT for multiplication)
-        let au = self.multiply_polys_flat_ntt(&pk_a_flat, &u_flat, moduli)?;
+        // CRITICAL: Use negacyclic convolution to match CPU and CKKS ring R = Z[x]/(x^n + 1)
+        let au = self.multiply_polys_flat_ntt_negacyclic(&pk_a_flat, &u_flat, moduli)?;
         let mut c1 = vec![0u64; n * num_primes];
         for i in 0..(n * num_primes) {
             let prime_idx = i % num_primes;
@@ -348,7 +350,8 @@ impl MetalCkksContext {
         let sk_flat = Self::rns_vec_to_flat_at_level(&sk.coeffs, level, num_primes);
 
         // Compute c1 * s using Metal NTT
-        let c1s = self.multiply_polys_flat_ntt(&ct.c1, &sk_flat, moduli)?;
+        // CRITICAL: Use negacyclic convolution to match CPU and CKKS ring R = Z[x]/(x^n + 1)
+        let c1s = self.multiply_polys_flat_ntt_negacyclic(&ct.c1, &sk_flat, moduli)?;
 
         // m = c0 + c1*s
         let mut m_flat = vec![0u64; n * num_primes];
@@ -365,6 +368,103 @@ impl MetalCkksContext {
             level,
             scale: ct.scale,
         })
+    }
+
+    // ==================== Conversion Functions (Metal ↔ CPU) ====================
+
+    /// Convert MetalCiphertext to CPU Ciphertext
+    ///
+    /// This allows Metal GPU ciphertexts to be used with CPU-based operations
+    /// like bootstrap. The conversion is lossless.
+    pub fn to_cpu_ciphertext(&self, ct: &MetalCiphertext) -> crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Ciphertext {
+        use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
+
+        let moduli = self.params.moduli[..=ct.level].to_vec();
+
+        // Convert c0 from flat layout to Vec<RnsRepresentation>
+        let mut c0_rns = Vec::with_capacity(ct.n);
+        for i in 0..ct.n {
+            let mut values = Vec::with_capacity(ct.num_primes);
+            for j in 0..ct.num_primes {
+                values.push(ct.c0[i * ct.num_primes + j]);
+            }
+            c0_rns.push(RnsRepresentation::new(values, moduli.clone()));
+        }
+
+        // Convert c1 from flat layout to Vec<RnsRepresentation>
+        let mut c1_rns = Vec::with_capacity(ct.n);
+        for i in 0..ct.n {
+            let mut values = Vec::with_capacity(ct.num_primes);
+            for j in 0..ct.num_primes {
+                values.push(ct.c1[i * ct.num_primes + j]);
+            }
+            c1_rns.push(RnsRepresentation::new(values, moduli.clone()));
+        }
+
+        crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Ciphertext::new(
+            c0_rns,
+            c1_rns,
+            ct.level,
+            ct.scale,
+        )
+    }
+
+    /// Convert CPU Ciphertext to MetalCiphertext
+    ///
+    /// This allows CPU ciphertexts (e.g., from bootstrap) to be used with
+    /// Metal GPU operations. The conversion is lossless.
+    pub fn from_cpu_ciphertext(&self, ct: &crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Ciphertext) -> MetalCiphertext {
+        let n = ct.n;
+        let level = ct.level;
+        let num_primes = ct.c0[0].values.len();
+
+        // Convert c0 from Vec<RnsRepresentation> to flat layout
+        let mut c0_flat = vec![0u64; n * num_primes];
+        for (i, rns) in ct.c0.iter().enumerate() {
+            for (j, &val) in rns.values.iter().enumerate() {
+                c0_flat[i * num_primes + j] = val;
+            }
+        }
+
+        // Convert c1 from Vec<RnsRepresentation> to flat layout
+        let mut c1_flat = vec![0u64; n * num_primes];
+        for (i, rns) in ct.c1.iter().enumerate() {
+            for (j, &val) in rns.values.iter().enumerate() {
+                c1_flat[i * num_primes + j] = val;
+            }
+        }
+
+        MetalCiphertext {
+            c0: c0_flat,
+            c1: c1_flat,
+            n,
+            num_primes,
+            level,
+            scale: ct.scale,
+        }
+    }
+
+    /// Convert CPU Plaintext to MetalPlaintext
+    pub fn from_cpu_plaintext(&self, pt: &crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Plaintext) -> MetalPlaintext {
+        let n = pt.n;
+        let level = pt.level;
+        let num_primes = pt.coeffs[0].values.len();
+
+        // Convert coeffs from Vec<RnsRepresentation> to flat layout
+        let mut coeffs_flat = vec![0u64; n * num_primes];
+        for (i, rns) in pt.coeffs.iter().enumerate() {
+            for (j, &val) in rns.values.iter().enumerate() {
+                coeffs_flat[i * num_primes + j] = val;
+            }
+        }
+
+        MetalPlaintext {
+            coeffs: coeffs_flat,
+            n,
+            num_primes,
+            level,
+            scale: pt.scale,
+        }
     }
 
     // ==================== Canonical Embedding Functions ====================
@@ -521,11 +621,39 @@ impl MetalCkksContext {
         flat
     }
 
-    /// Multiply two polynomials in flat RNS layout using Metal NTT
+    /// Multiply two polynomials using NTT - CYCLIC convolution (for key operations)
+    ///
+    /// This is used for key generation and operations that don't require negacyclic convolution.
+    /// For CKKS plaintext multiplication, use multiply_polys_flat_ntt_negacyclic instead.
     fn multiply_polys_flat_ntt(&self, a_flat: &[u64], b_flat: &[u64], moduli: &[u64]) -> Result<Vec<u64>, String> {
+        self.multiply_polys_flat_ntt_impl(a_flat, b_flat, moduli, false)
+    }
+
+    /// Multiply two polynomials using NTT - NEGACYCLIC convolution (for CKKS operations)
+    ///
+    /// This is used for CKKS plaintext multiplication which requires negacyclic convolution (mod x^n + 1).
+    /// Uses twist/untwist to convert cyclic NTT to negacyclic.
+    fn multiply_polys_flat_ntt_negacyclic(&self, a_flat: &[u64], b_flat: &[u64], moduli: &[u64]) -> Result<Vec<u64>, String> {
+        self.multiply_polys_flat_ntt_impl(a_flat, b_flat, moduli, true)
+    }
+
+    /// Internal implementation of polynomial multiplication with optional twist/untwist
+    ///
+    /// Both input arrays must have the same stride (num_primes_in_array).
+    /// The stride must be >= moduli.len().
+    ///
+    /// @param negacyclic If true, applies twist/untwist for negacyclic convolution (mod x^n + 1)
+    fn multiply_polys_flat_ntt_impl(&self, a_flat: &[u64], b_flat: &[u64], moduli: &[u64], negacyclic: bool) -> Result<Vec<u64>, String> {
         let n = self.params.n;
-        let num_primes = moduli.len();
-        let mut result_flat = vec![0u64; n * num_primes];
+        let num_primes_to_process = moduli.len();
+
+        // Infer the stride from the input array length
+        let num_primes_in_array = a_flat.len() / n;
+        if b_flat.len() / n != num_primes_in_array {
+            return Err("Input arrays have different strides".to_string());
+        }
+
+        let mut result_flat = vec![0u64; n * num_primes_to_process];
 
         // For each RNS component (each prime), multiply using Metal NTT
         for (prime_idx, &q) in moduli.iter().enumerate() {
@@ -534,22 +662,45 @@ impl MetalCkksContext {
             let mut b_poly = vec![0u64; n];
 
             for i in 0..n {
-                a_poly[i] = a_flat[i * num_primes + prime_idx];
-                b_poly[i] = b_flat[i * num_primes + prime_idx];
+                // IMPORTANT: Use the array's stride (num_primes_in_array), not num_primes_to_process
+                a_poly[i] = a_flat[i * num_primes_in_array + prime_idx];
+                b_poly[i] = b_flat[i * num_primes_in_array + prime_idx];
             }
 
-            // Multiply using Metal NTT: forward NTT -> pointwise multiply -> inverse NTT
-            self.ntt_contexts[prime_idx].forward(&mut a_poly)?;
-            self.ntt_contexts[prime_idx].forward(&mut b_poly)?;
+            let ntt_ctx = &self.ntt_contexts[prime_idx];
+            let q = moduli[prime_idx];
 
+            // For negacyclic convolution (CKKS): apply twist/untwist
+            // For cyclic convolution (key operations): use NTT directly
+            if negacyclic {
+                // TWIST: multiply a and b by psi^i (converts negacyclic → cyclic)
+                for i in 0..n {
+                    a_poly[i] = Self::mul_mod(a_poly[i], ntt_ctx.psi_powers()[i], q);
+                    b_poly[i] = Self::mul_mod(b_poly[i], ntt_ctx.psi_powers()[i], q);
+                }
+            }
+
+            // Forward NTT
+            ntt_ctx.forward(&mut a_poly)?;
+            ntt_ctx.forward(&mut b_poly)?;
+
+            // Pointwise multiply in NTT domain
             let mut result_poly = vec![0u64; n];
-            self.ntt_contexts[prime_idx].pointwise_multiply(&a_poly, &b_poly, &mut result_poly)?;
+            ntt_ctx.pointwise_multiply(&a_poly, &b_poly, &mut result_poly)?;
 
-            self.ntt_contexts[prime_idx].inverse(&mut result_poly)?;
+            // Inverse NTT
+            ntt_ctx.inverse(&mut result_poly)?;
+
+            if negacyclic {
+                // UNTWIST: multiply by psi^{-i} (converts cyclic → negacyclic)
+                for i in 0..n {
+                    result_poly[i] = Self::mul_mod(result_poly[i], ntt_ctx.psi_inv_powers()[i], q);
+                }
+            }
 
             // Store back in flat layout
             for i in 0..n {
-                result_flat[i * num_primes + prime_idx] = result_poly[i];
+                result_flat[i * num_primes_to_process + prime_idx] = result_poly[i];
             }
         }
 
@@ -611,6 +762,11 @@ impl MetalCkksContext {
         psi_2n == 1
     }
 
+    /// Modular multiplication: (a * b) mod q
+    fn mul_mod(a: u64, b: u64, q: u64) -> u64 {
+        ((a as u128 * b as u128) % q as u128) as u64
+    }
+
     /// Modular exponentiation: base^exp mod q
     fn pow_mod(mut base: u64, mut exp: u64, q: u64) -> u64 {
         let mut result = 1u64;
@@ -630,21 +786,264 @@ impl MetalCkksContext {
 
 // Implement methods for MetalCiphertext
 impl MetalCiphertext {
-    /// Add two ciphertexts (GPU)
-    pub fn add(&self, _other: &Self, _ctx: &MetalCkksContext) -> Result<Self, String> {
-        // TODO: Implement GPU addition
-        Err("GPU ciphertext addition not yet implemented".to_string())
+    /// Add two ciphertexts (component-wise polynomial addition)
+    pub fn add(&self, other: &Self, ctx: &MetalCkksContext) -> Result<Self, String> {
+        assert_eq!(self.n, other.n, "Dimensions must match");
+        assert_eq!(self.level, other.level, "Levels must match");
+        assert_eq!(self.num_primes, other.num_primes, "Number of primes must match");
+
+        let moduli = &ctx.params.moduli[..=self.level];
+        let n = self.n;
+        let num_primes = self.num_primes;
+
+        // Add c0 + c0' component-wise
+        let mut new_c0 = vec![0u64; n * num_primes];
+        for i in 0..(n * num_primes) {
+            let prime_idx = i % num_primes;
+            let q = moduli[prime_idx];
+            new_c0[i] = ((self.c0[i] as u128 + other.c0[i] as u128) % q as u128) as u64;
+        }
+
+        // Add c1 + c1' component-wise
+        let mut new_c1 = vec![0u64; n * num_primes];
+        for i in 0..(n * num_primes) {
+            let prime_idx = i % num_primes;
+            let q = moduli[prime_idx];
+            new_c1[i] = ((self.c1[i] as u128 + other.c1[i] as u128) % q as u128) as u64;
+        }
+
+        // Scale stays the same (assuming both have same scale)
+        Ok(Self {
+            c0: new_c0,
+            c1: new_c1,
+            n,
+            num_primes,
+            level: self.level,
+            scale: self.scale,
+        })
     }
 
-    /// Multiply ciphertext by plaintext (GPU)
-    pub fn multiply_plain(&self, _pt: &MetalPlaintext, _ctx: &MetalCkksContext) -> Result<Self, String> {
-        // TODO: Implement GPU multiply_plain
-        Err("GPU multiply_plain not yet implemented".to_string())
+    /// Multiply ciphertext by plaintext using Metal GPU NTT
+    ///
+    /// Algorithm: (c0, c1) * pt = (c0 * pt, c1 * pt)
+    /// Then rescale to bring scale back down.
+    pub fn multiply_plain(&self, pt: &MetalPlaintext, ctx: &MetalCkksContext) -> Result<Self, String> {
+        assert_eq!(self.n, pt.n, "Dimensions must match");
+        assert_eq!(self.level, pt.level, "Levels must match for plaintext multiplication");
+
+        let moduli = &ctx.params.moduli[..=self.level];
+
+        // CRITICAL: Use negacyclic NTT for CKKS plaintext multiplication!
+        // CKKS operates in the ring R = Z[x]/(x^n + 1) which requires negacyclic convolution.
+        let new_c0 = ctx.multiply_polys_flat_ntt_negacyclic(&self.c0, &pt.coeffs, moduli)?;
+
+        // Multiply c1 by plaintext using negacyclic NTT
+        let new_c1 = ctx.multiply_polys_flat_ntt_negacyclic(&self.c1, &pt.coeffs, moduli)?;
+
+        // Compute pre-rescale scale
+        let pre_rescale_scale = self.scale * pt.scale;
+
+        // CRITICAL FIX: multiply_polys_flat_ntt returns arrays with stride = moduli.len()
+        // Must set num_primes to match the output stride, not the input stride!
+        let num_primes_to_process = moduli.len();
+
+        // Create intermediate ciphertext (scale will be fixed in rescale)
+        let ct_mult = Self {
+            c0: new_c0,
+            c1: new_c1,
+            n: self.n,
+            num_primes: num_primes_to_process,  // FIX: Use output stride, not self.num_primes
+            level: self.level,
+            scale: 0.0, // Will be set by rescale
+        };
+
+        // Rescale to bring scale back to ~Δ and drop one level
+        ct_mult.rescale_to_next(ctx, pre_rescale_scale)
     }
 
-    /// Multiply two ciphertexts (GPU)
+    /// Rescale ciphertext to next level (drop one prime from modulus chain)
+    ///
+    /// This operation divides the ciphertext by the dropped prime and reduces the level.
+    /// Essential for keeping noise growth manageable in CKKS.
+    fn rescale_to_next(&self, ctx: &MetalCkksContext, pre_rescale_scale: f64) -> Result<Self, String> {
+        if self.level == 0 {
+            return Err("Cannot rescale at level 0".to_string());
+        }
+
+        use num_bigint::BigInt;
+        use num_traits::{One, Signed, Zero};
+
+        let moduli_before = &ctx.params.moduli[..=self.level];
+        let moduli_after = &ctx.params.moduli[..self.level]; // Drop last prime
+        let q_last = moduli_before[moduli_before.len() - 1];
+        let n = self.n;
+        let new_level = self.level - 1;
+        let num_primes_after = moduli_after.len();
+
+        // CRITICAL: Verify stride matches number of primes (prevents stride mismatch bugs)
+        debug_assert_eq!(
+            self.num_primes,
+            moduli_before.len(),
+            "Stride/level mismatch: num_primes={} but moduli_before.len()={}",
+            self.num_primes,
+            moduli_before.len()
+        );
+        debug_assert_eq!(
+            self.c0.len(),
+            n * self.num_primes,
+            "Buffer size mismatch: c0.len()={} but expected n*num_primes={}",
+            self.c0.len(),
+            n * self.num_primes
+        );
+
+        // Helper: Convert residue to centered representation: [0, q) -> (-q/2, q/2]
+        let centered_residue = |x: u64, q: u64| -> i128 {
+            let x_i128 = x as i128;
+            let q_i128 = q as i128;
+            if x_i128 > q_i128 / 2 {
+                x_i128 - q_i128
+            } else {
+                x_i128
+            }
+        };
+
+        // Helper: Convert centered residue back to canonical [0, q)
+        let canon_from_centered = |t: i128, q: u64| -> u64 {
+            let q_i128 = q as i128;
+            let mut u = t % q_i128;
+            if u < 0 {
+                u += q_i128;
+            }
+            u as u64
+        };
+
+        // CRT reconstruction using direct formula with centered residues
+        let crt_reconstruct_centered = |residues: &[u64], moduli: &[u64]| -> BigInt {
+            let centered: Vec<i128> = residues.iter().zip(moduli.iter())
+                .map(|(&r, &q)| centered_residue(r, q))
+                .collect();
+
+            let mut q_product = BigInt::one();
+            for &q in moduli {
+                q_product *= q;
+            }
+
+            let mut result = BigInt::zero();
+            for i in 0..moduli.len() {
+                let r_i = BigInt::from(centered[i]);
+                let q_i = BigInt::from(moduli[i]);
+                let m_i = &q_product / &q_i;
+
+                // Compute modular inverse using Extended Euclidean Algorithm
+                let (gcd, x, _) = {
+                    fn extended_gcd(a: &BigInt, b: &BigInt) -> (BigInt, BigInt, BigInt) {
+                        if b.is_zero() {
+                            return (a.clone(), BigInt::one(), BigInt::zero());
+                        }
+                        let (g, x1, y1) = extended_gcd(b, &(a % b));
+                        let x = y1.clone();
+                        let y = x1 - (a / b) * y1;
+                        (g, x, y)
+                    }
+                    extended_gcd(&m_i, &q_i)
+                };
+                assert!(gcd.is_one(), "GCD must be 1");
+
+                let m_i_inv = ((x % &q_i) + &q_i) % &q_i;
+                let term_i = &r_i * &m_i * m_i_inv;
+                result += term_i;
+            }
+
+            // Center the result to (-Q/2, Q/2]
+            result = result % &q_product;
+            if result > &q_product / 2 {
+                result -= q_product;
+            }
+            result
+        };
+
+        // Rescale c0
+        let mut new_c0_flat = vec![0u64; n * num_primes_after];
+        for i in 0..n {
+            // Extract RNS representation for this coefficient (before rescale)
+            // IMPORTANT: Use self.num_primes for indexing (the current stride), not moduli_before.len()
+            let residues_before: Vec<u64> = (0..moduli_before.len())
+                .map(|j| self.c0[i * self.num_primes + j])
+                .collect();
+
+            // CRT reconstruct to BigInt
+            let coeff_big = crt_reconstruct_centered(&residues_before, moduli_before);
+
+            // Exact division by q_last (centered)
+            let coeff_rescaled = &coeff_big / q_last;
+
+            // Convert back to RNS (mod each remaining prime)
+            for j in 0..num_primes_after {
+                let q_j = moduli_after[j];
+                let residue = (&coeff_rescaled % q_j).to_u64_digits();
+                let val = if residue.1.is_empty() {
+                    0u64
+                } else if residue.0 == num_bigint::Sign::Minus {
+                    // Negative: convert to canonical form
+                    let abs_val = residue.1[0];
+                    if abs_val % q_j == 0 {
+                        0
+                    } else {
+                        q_j - (abs_val % q_j)
+                    }
+                } else {
+                    residue.1[0] % q_j
+                };
+                new_c0_flat[i * num_primes_after + j] = val;
+            }
+        }
+
+        // Rescale c1
+        let mut new_c1_flat = vec![0u64; n * num_primes_after];
+        for i in 0..n {
+            // IMPORTANT: Use self.num_primes for indexing (the current stride), not moduli_before.len()
+            let residues_before: Vec<u64> = (0..moduli_before.len())
+                .map(|j| self.c1[i * self.num_primes + j])
+                .collect();
+
+            let coeff_big = crt_reconstruct_centered(&residues_before, moduli_before);
+            let coeff_rescaled = &coeff_big / q_last;
+
+            for j in 0..num_primes_after {
+                let q_j = moduli_after[j];
+                let residue = (&coeff_rescaled % q_j).to_u64_digits();
+                let val = if residue.1.is_empty() {
+                    0u64
+                } else if residue.0 == num_bigint::Sign::Minus {
+                    let abs_val = residue.1[0];
+                    if abs_val % q_j == 0 {
+                        0
+                    } else {
+                        q_j - (abs_val % q_j)
+                    }
+                } else {
+                    residue.1[0] % q_j
+                };
+                new_c1_flat[i * num_primes_after + j] = val;
+            }
+        }
+
+        // New scale after rescale
+        let new_scale = pre_rescale_scale / (q_last as f64);
+
+        Ok(Self {
+            c0: new_c0_flat,
+            c1: new_c1_flat,
+            n,
+            num_primes: num_primes_after,
+            level: new_level,
+            scale: new_scale,
+        })
+    }
+
+    /// Multiply two ciphertexts (GPU) - NOT IMPLEMENTED YET
     pub fn multiply(&self, _other: &Self, _ctx: &MetalCkksContext) -> Result<Self, String> {
-        // TODO: Implement GPU multiplication
+        // TODO: Implement GPU multiplication (requires relinearization)
         Err("GPU ciphertext multiplication not yet implemented".to_string())
     }
 }

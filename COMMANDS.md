@@ -249,23 +249,47 @@ cargo test --lib clifford_fhe_v3::batched::extraction --features v2,v3 -- --noca
 
 ### Examples V3
 ```bash
-# V3 bootstrap simple test
-cargo run --release --features v2,v3 --example test_v3_bootstrap_simple
+# Full Bootstrap Pipeline (PRODUCTION - Complete working bootstrap)
+cargo run --release --features v2,v3 --example test_v3_full_bootstrap
 
-# SIMD batching demonstration (512x throughput)
-cargo run --release --features v2,v3 --example test_batching
+# Fast CPU Demo Bootstrap (N=512, completes in seconds)
+cargo run --release --features v2,v3 --example test_v3_cpu_demo
 
-# Medical imaging: encrypted deep GNN
-cargo run --release --features v2,v3 --example medical_imaging_encrypted
+# V3 Parameters Test (verify dynamic prime generation)
+cargo run --release --features v2,v3 --example test_v3_parameters
+
+# Rotation Keys Test (verify Galois automorphisms)
+cargo run --release --features v2,v3 --example test_v3_rotation_keys
+cargo run --release --features v2,v3 --example test_v3_rotation
+cargo run --release --features v2,v3 --example test_v3_rotation_key_generation
+
+# Metal GPU Integration Tests
+cargo run --release --features v2,v3,v2-gpu-metal --example test_v3_metal_quick
+cargo run --release --features v2,v3,v2-gpu-metal --example test_v3_metal_operations
+
+# Comprehensive V3 Test Suite
+cargo run --release --features v2,v3 --example test_v3_all
+cargo run --release --features v2,v3 --example test_v3_phase3_complete
+cargo run --release --features v2,v3 --example test_v3_bootstrap_skeleton
 ```
 
 ### Performance V3
 ```bash
-# Expected performance:
-# - Bootstrap (CPU): ~1 second per ciphertext
-# - Bootstrap (GPU, projected): ~500ms per ciphertext
-# - SIMD batch (512 samples): 0.656ms per sample (19,817x faster than V1)
-# - Deep GNN throughput: 1,524 operations/second
+# Actual performance (test_v3_full_bootstrap, N=8192, 41 primes):
+# - Key generation: 1.31s
+# - Bootstrap context setup: 256.08s (rotation keys generation)
+# - Bootstrap operation: 359.49s (~6 minutes)
+# - Total end-to-end: 616.87s (~10 minutes)
+# - Accuracy: error = 3.55e-9 (excellent precision)
+# - Hardware: Apple M3 Max, 14-core CPU
+
+# Fast CPU demo (N=512, 7 primes):
+# - Bootstrap operation: <10 seconds
+# - Use case: Quick validation and testing
+
+# Projected GPU performance (with full Metal backend):
+# - Bootstrap operation: <30 seconds (12-20× speedup estimate)
+# - Key generation: 2-3 minutes (GPU-accelerated)
 ```
 
 ## Lattice Reduction
@@ -463,8 +487,14 @@ cargo run --release --features v2 --example encrypted_3d_classification
 
 ## Additional Resources
 
+### V3 Bootstrapping Documentation
+- **V3 Full Bootstrap Pipeline**: See [V3_FULL_BOOTSTRAP_PIPELINE.md](V3_FULL_BOOTSTRAP_PIPELINE.md) - Complete technical documentation with mathematical foundations, implementation details, and critical bug fixes
+- **V3 Bootstrap Overview**: See [V3_BOOTSTRAP.md](V3_BOOTSTRAP.md) - High-level V3 documentation (52/52 tests passing)
+- **Dynamic Prime Generation**: See [DYNAMIC_PRIME_GENERATION.md](DYNAMIC_PRIME_GENERATION.md) - NTT-friendly prime generation algorithm
+- **Metal GPU Status**: See [V3_METAL_GPU_STATUS.md](V3_METAL_GPU_STATUS.md) - Metal GPU backend integration status
+
+### General Documentation
 - **CMake 4.0 Fix**: See [CMAKE_FIX.md](CMAKE_FIX.md) - netlib-src compatibility solution
-- **V3 Bootstrapping**: See [V3_BOOTSTRAP.md](V3_BOOTSTRAP.md) - Complete V3 documentation (52/52 tests passing)
 - **Feature Flags Guide**: See [FEATURE_FLAGS.md](FEATURE_FLAGS.md)
 - **Installation Guide**: See [INSTALLATION.md](INSTALLATION.md)
 - **CUDA Build Notes**: See [CUDA_BUILD_NOTES.md](CUDA_BUILD_NOTES.md)

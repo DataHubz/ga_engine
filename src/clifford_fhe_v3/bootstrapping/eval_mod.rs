@@ -138,30 +138,29 @@ fn multiply_by_constant(
     Ok(ct.multiply_plain(&pt_constant, &ckks_ctx))
 }
 
-/// Encode constant vector as plaintext
+/// Encode constant vector as plaintext at a specific level
+///
+/// **CRITICAL FIX**: Uses `encode_at_level` to ensure the plaintext has the same
+/// RNS basis as the ciphertext it will operate with. This prevents the moduli
+/// mismatch error that was causing bootstrap to fail.
+///
+/// # Arguments
+/// * `values` - Float values to encode
+/// * `params` - FHE parameters (with full moduli list)
+/// * `level` - Target level (determines which moduli to use: [0..=level])
+///
+/// # Returns
+/// Plaintext with RNS representation matching the target level
 fn encode_constant_plaintext(
     values: &[f64],
     params: &CliffordFHEParams,
     level: usize,
 ) -> Result<Plaintext, String> {
     use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Plaintext;
-    use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
 
-    // Create parameters with only the moduli we need for this level
-    let mut level_params = params.clone();
-    level_params.moduli = params.moduli[..=level].to_vec();
-
-    // Recompute inv_scale_mod_q and inv_q_top_mod_q for truncated moduli
-    level_params.inv_scale_mod_q = CliffordFHEParams::precompute_inv_scale_mod_q(
-        params.scale,
-        &level_params.moduli
-    );
-    level_params.inv_q_top_mod_q = CliffordFHEParams::precompute_inv_q_top_mod_q(
-        &level_params.moduli
-    );
-
-    // Encode with the level-specific parameters
-    let pt = Plaintext::encode(values, params.scale, &level_params);
+    // **EXPERT'S FIX**: Use encode_at_level to match ciphertext's RNS basis exactly
+    // This replaces the old approach of creating temporary params with truncated moduli
+    let pt = Plaintext::encode_at_level(values, params.scale, params, level);
 
     Ok(pt)
 }
@@ -248,51 +247,128 @@ fn multiply_ciphertexts(
     Ok(multiply_ciphertexts(ct1, ct2, evk, key_ctx))
 }
 
-/// Add two ciphertexts
+/// Add two ciphertexts (automatically handles level mismatch)
 fn add_ciphertexts(
     ct1: &Ciphertext,
     ct2: &Ciphertext,
-    _params: &CliffordFHEParams,
+    params: &CliffordFHEParams,
 ) -> Result<Ciphertext, String> {
+    // If levels don't match, mod-switch the higher-level ciphertext down
+    let (ct1_aligned, ct2_aligned) = if ct1.level != ct2.level {
+        println!("      [add] Level mismatch detected: ct1.level={}, ct2.level={}", ct1.level, ct2.level);
+        if ct1.level > ct2.level {
+            println!("      [add] Mod-switching ct1 from level {} down to {}", ct1.level, ct2.level);
+            let ct1_down = mod_switch_to_level(ct1, ct2.level, params)?;
+            (ct1_down, ct2.clone())
+        } else {
+            println!("      [add] Mod-switching ct2 from level {} down to {}", ct2.level, ct1.level);
+            let ct2_down = mod_switch_to_level(ct2, ct1.level, params)?;
+            (ct1.clone(), ct2_down)
+        }
+    } else {
+        (ct1.clone(), ct2.clone())
+    };
+
     // Component-wise addition using RnsRepresentation::add
-    let c0_sum: Vec<_> = ct1.c0.iter().zip(&ct2.c0)
+    let c0_sum: Vec<_> = ct1_aligned.c0.iter().zip(&ct2_aligned.c0)
         .map(|(a, b)| a.add(b))
         .collect();
 
-    let c1_sum: Vec<_> = ct1.c1.iter().zip(&ct2.c1)
+    let c1_sum: Vec<_> = ct1_aligned.c1.iter().zip(&ct2_aligned.c1)
         .map(|(a, b)| a.add(b))
         .collect();
 
     Ok(Ciphertext {
         c0: c0_sum,
         c1: c1_sum,
-        n: ct1.n,
-        level: ct1.level.max(ct2.level),
-        scale: ct1.scale,  // Assuming same scale
+        n: ct1_aligned.n,
+        level: ct1_aligned.level,
+        scale: ct1_aligned.scale,  // Assuming same scale
     })
 }
 
-/// Subtract two ciphertexts
+/// Subtract two ciphertexts (automatically handles level mismatch)
 fn subtract_ciphertexts(
     ct1: &Ciphertext,
     ct2: &Ciphertext,
-    _params: &CliffordFHEParams,
+    params: &CliffordFHEParams,
 ) -> Result<Ciphertext, String> {
+    // If levels don't match, mod-switch the higher-level ciphertext down
+    let (ct1_aligned, ct2_aligned) = if ct1.level != ct2.level {
+        println!("      [subtract] Level mismatch detected: ct1.level={}, ct2.level={}", ct1.level, ct2.level);
+        if ct1.level > ct2.level {
+            println!("      [subtract] Mod-switching ct1 from level {} down to {}", ct1.level, ct2.level);
+            let ct1_down = mod_switch_to_level(ct1, ct2.level, params)?;
+            (ct1_down, ct2.clone())
+        } else {
+            println!("      [subtract] Mod-switching ct2 from level {} down to {}", ct2.level, ct1.level);
+            let ct2_down = mod_switch_to_level(ct2, ct1.level, params)?;
+            (ct1.clone(), ct2_down)
+        }
+    } else {
+        (ct1.clone(), ct2.clone())
+    };
+
     // Component-wise subtraction using RnsRepresentation::sub
-    let c0_diff: Vec<_> = ct1.c0.iter().zip(&ct2.c0)
+    let c0_diff: Vec<_> = ct1_aligned.c0.iter().zip(&ct2_aligned.c0)
         .map(|(a, b)| a.sub(b))
         .collect();
 
-    let c1_diff: Vec<_> = ct1.c1.iter().zip(&ct2.c1)
+    let c1_diff: Vec<_> = ct1_aligned.c1.iter().zip(&ct2_aligned.c1)
         .map(|(a, b)| a.sub(b))
         .collect();
 
     Ok(Ciphertext {
         c0: c0_diff,
         c1: c1_diff,
-        n: ct1.n,
-        level: ct1.level.max(ct2.level),
-        scale: ct1.scale,
+        n: ct1_aligned.n,
+        level: ct1_aligned.level,
+        scale: ct1_aligned.scale,
+    })
+}
+
+/// Mod-switch ciphertext down to a target level
+///
+/// Drops the top (level - target_level) primes from the RNS representation.
+/// This is a "cheap" operation that doesn't change the underlying message,
+/// just reduces the modulus chain.
+fn mod_switch_to_level(
+    ct: &Ciphertext,
+    target_level: usize,
+    params: &CliffordFHEParams,
+) -> Result<Ciphertext, String> {
+    if target_level > ct.level {
+        return Err(format!(
+            "Cannot mod-switch up: ct.level={} < target_level={}",
+            ct.level, target_level
+        ));
+    }
+
+    if target_level == ct.level {
+        return Ok(ct.clone());
+    }
+
+    use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
+
+    // Drop the top primes by truncating the RNS representation
+    let target_moduli: Vec<u64> = params.moduli[..=target_level].to_vec();
+
+    let c0_switched: Vec<_> = ct.c0.iter().map(|rns| {
+        let truncated_values = rns.values[..=target_level].to_vec();
+        RnsRepresentation::new(truncated_values, target_moduli.clone())
+    }).collect();
+
+    let c1_switched: Vec<_> = ct.c1.iter().map(|rns| {
+        let truncated_values = rns.values[..=target_level].to_vec();
+        RnsRepresentation::new(truncated_values, target_moduli.clone())
+    }).collect();
+
+    Ok(Ciphertext {
+        c0: c0_switched,
+        c1: c1_switched,
+        n: ct.n,
+        level: target_level,
+        scale: ct.scale,  // Scale doesn't change in mod-switch
     })
 }
 

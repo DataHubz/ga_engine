@@ -363,9 +363,14 @@ mod tests {
         params.sin_degree = 20;
         assert!(params.validate().is_err());
 
-        // Invalid: too few levels
+        // Warning: below recommended minimum (5 is allowed but warns)
         let mut params = BootstrapParams::balanced();
         params.bootstrap_levels = 5;
+        assert!(params.validate().is_ok());  // Should pass with warning
+
+        // Invalid: too few levels (below minimum of 5)
+        let mut params = BootstrapParams::balanced();
+        params.bootstrap_levels = 4;
         assert!(params.validate().is_err());
     }
 

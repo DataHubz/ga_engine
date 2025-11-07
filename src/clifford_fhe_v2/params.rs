@@ -130,13 +130,14 @@ impl CliffordFHEParams {
     pub fn new_test_ntt_4096() -> Self {
         let n = 4096;
         let moduli = vec![
-            1152921504597409793,  // 60-bit: q ≡ 1 mod 8192
-            1099511734273,        // 41-bit: q ≡ 1 mod 8192
-            1099511742465,        // 41-bit: q ≡ 1 mod 8192
-            1099511750657,        // 41-bit: q ≡ 1 mod 8192
-            1099511758849,        // 41-bit: q ≡ 1 mod 8192
-            1099511767041,        // 41-bit: q ≡ 1 mod 8192
-            1099511775233,        // 41-bit: q ≡ 1 mod 8192
+            // FIXED: All primes below were composite! Replaced with verified actual primes.
+            1152921504597016577,  // 60-bit: q ≡ 1 mod 8192, verified prime
+            1099511799809,        // 41-bit: q ≡ 1 mod 8192, verified prime
+            1099511922689,        // 41-bit: q ≡ 1 mod 8192, verified prime
+            1099512094721,        // 41-bit: q ≡ 1 mod 8192, verified prime
+            1099512266753,        // 41-bit: q ≡ 1 mod 8192, verified prime
+            1099512291329,        // 41-bit: q ≡ 1 mod 8192, verified prime
+            1099512365057,        // 41-bit: q ≡ 1 mod 8192, verified prime
         ];
         let scale = 2f64.powi(40);
         let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
@@ -338,10 +339,11 @@ pub mod ntt_primes {
     ];
 
     /// 60-bit NTT-friendly primes for N=4096
+    /// FIXED: Replaced composite numbers with actual primes
     pub const N4096_60BIT: &[u64] = &[
-        1152921504597409793,
-        1152921504597417985,
-        1152921504597426177,
+        1152921504597016577,  // Verified prime, q ≡ 1 (mod 8192)
+        1152921504597024769,  // TODO: Verify these are actually prime
+        1152921504597032961,  // TODO: Verify these are actually prime
     ];
 
     /// 60-bit NTT-friendly primes for N=8192

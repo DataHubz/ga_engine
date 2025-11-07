@@ -49,3 +49,4 @@
 pub mod bootstrapping;
 pub mod params;
 pub mod batched;
+pub mod prime_gen;
