@@ -40,6 +40,10 @@ pub mod slot_to_coeff;
 mod eval_mod;
 mod diagonal_mult;
 
+// CUDA GPU Bootstrap
+#[cfg(feature = "v2-gpu-cuda")]
+pub mod cuda_bootstrap;
+
 pub use bootstrap_context::{BootstrapContext, BootstrapParams};
 pub use mod_raise::mod_raise;
 pub use sin_approx::{chebyshev_sin_coeffs, eval_polynomial, taylor_sin_coeffs};
