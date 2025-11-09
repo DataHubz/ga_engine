@@ -59,9 +59,17 @@ fn main() -> Result<(), String> {
         16,  // base_bits = 16
     )?;
 
-    // Generate keys for essential rotations
-    let essential_rotations = vec![1, 2, 4, 8];
-    for &rot in &essential_rotations {
+    // Generate keys for all rotations needed by bootstrap
+    // For N=1024 (slots=512), CoeffToSlot needs: 1, 2, 4, 8, 16, 32, 64, 128, 256
+    let num_slots = n / 2;
+    let num_fft_levels = (num_slots as f64).log2() as usize;
+    let mut bootstrap_rotations = Vec::new();
+    for level_idx in 0..num_fft_levels {
+        bootstrap_rotations.push(1 << level_idx);
+    }
+
+    println!("  Generating rotation keys for {} FFT levels: {:?}", num_fft_levels, bootstrap_rotations);
+    for &rot in &bootstrap_rotations {
         rotation_keys.generate_rotation_key(rot)?;
     }
     println!("  ✅ Generated {} rotation keys", rotation_keys.num_keys());
