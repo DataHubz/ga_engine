@@ -11,7 +11,7 @@ extern "C" {
  * Modular addition with lazy reduction
  * Returns a + b (may be >= q, but < 2q)
  */
-__device__ unsigned long long add_mod_lazy(
+__device__ __forceinline__ unsigned long long add_mod_lazy(
     unsigned long long a,
     unsigned long long b,
     unsigned long long q
@@ -26,7 +26,7 @@ __device__ unsigned long long add_mod_lazy(
  *
  * This avoids overflow issues by computing the product iteratively.
  */
-__device__ unsigned long long mul_mod_128(
+__device__ __forceinline__ unsigned long long mul_mod_128(
     unsigned long long a,
     unsigned long long b,
     unsigned long long q
@@ -258,6 +258,61 @@ __global__ void rns_negate(
 
     // Negate: -a mod q = q - a (when a != 0)
     b[idx] = (a[idx] == 0) ? 0 : (q - a[idx]);
+}
+
+/**
+ * Layout conversion: Strided → Flat
+ *
+ * Strided: poly_in[coeff_idx * stride + prime_idx]
+ * Flat:    poly_out[prime_idx * n + coeff_idx]
+ *
+ * This is a memory-bound operation perfect for GPU parallelization.
+ * Avoids expensive CPU loops (650k+ operations per conversion).
+ */
+__global__ void rns_strided_to_flat(
+    const unsigned long long* poly_in,   // Strided layout
+    unsigned long long* poly_out,        // Flat layout
+    unsigned int n,                      // Ring dimension
+    unsigned int stride,                 // Stride in input (usually num_primes_total)
+    unsigned int num_primes              // Number of active primes
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total_elements = n * num_primes;
+
+    if (idx >= total_elements) return;
+
+    // Decompose idx = prime_idx * n + coeff_idx (flat layout)
+    unsigned int prime_idx = idx / n;
+    unsigned int coeff_idx = idx % n;
+
+    // Read from strided layout and write to flat layout
+    poly_out[idx] = poly_in[coeff_idx * stride + prime_idx];
+}
+
+/**
+ * Layout conversion: Flat → Strided
+ *
+ * Flat:    poly_in[prime_idx * n + coeff_idx]
+ * Strided: poly_out[coeff_idx * stride + prime_idx]
+ */
+__global__ void rns_flat_to_strided(
+    const unsigned long long* poly_in,   // Flat layout
+    unsigned long long* poly_out,        // Strided layout
+    unsigned int n,                      // Ring dimension
+    unsigned int stride,                 // Stride in output (usually num_primes_total)
+    unsigned int num_primes              // Number of active primes
+) {
+    unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int total_elements = n * num_primes;
+
+    if (idx >= total_elements) return;
+
+    // Decompose idx = prime_idx * n + coeff_idx (flat layout)
+    unsigned int prime_idx = idx / n;
+    unsigned int coeff_idx = idx % n;
+
+    // Read from flat layout and write to strided layout
+    poly_out[coeff_idx * stride + prime_idx] = poly_in[idx];
 }
 
 } // extern "C"

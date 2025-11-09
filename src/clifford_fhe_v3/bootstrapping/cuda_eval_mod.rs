@@ -392,34 +392,16 @@ fn cuda_multiply_ciphertexts(
             ckks_ctx,
         )?;
 
-        // Convert back to strided layout
-        let mut c0_strided = vec![0u64; n * num_primes];
-        let mut c1_strided = vec![0u64; n * num_primes];
-        let num_active_primes = ct1.level + 1;
-        for coeff_idx in 0..n {
-            for prime_idx in 0..num_active_primes {
-                let flat_idx = prime_idx * n + coeff_idx;
-                let strided_idx = coeff_idx * num_primes + prime_idx;
-                c0_strided[strided_idx] = c0_relin[flat_idx];
-                c1_strided[strided_idx] = c1_relin[flat_idx];
-            }
-        }
+        // Convert back to strided layout using GPU
+        let c0_strided = flat_to_strided_gpu(&c0_relin, n, num_primes, ct1.level + 1, ckks_ctx)?;
+        let c1_strided = flat_to_strided_gpu(&c1_relin, n, num_primes, ct1.level + 1, ckks_ctx)?;
 
         (c0_strided, c1_strided)
     } else {
         // No relinearization keys: use approximation (drop c2)
-        // Convert flat to strided layout
-        let mut c0_strided = vec![0u64; n * num_primes];
-        let mut c1_strided = vec![0u64; n * num_primes];
-        let num_active_primes = ct1.level + 1;
-        for coeff_idx in 0..n {
-            for prime_idx in 0..num_active_primes {
-                let flat_idx = prime_idx * n + coeff_idx;
-                let strided_idx = coeff_idx * num_primes + prime_idx;
-                c0_strided[strided_idx] = c0_flat[flat_idx];
-                c1_strided[strided_idx] = c1_flat[flat_idx];
-            }
-        }
+        // Convert flat to strided layout using GPU
+        let c0_strided = flat_to_strided_gpu(&c0_flat, n, num_primes, ct1.level + 1, ckks_ctx)?;
+        let c1_strided = flat_to_strided_gpu(&c1_flat, n, num_primes, ct1.level + 1, ckks_ctx)?;
         (c0_strided, c1_strided)
     };
 
@@ -542,4 +524,55 @@ mod tests {
         // (This would require actually evaluating the polynomial,
         //  which we can't do without a full CKKS context)
     }
+}
+
+/// GPU-accelerated layout conversion: Flat → Strided
+///
+/// Replaces ~650k CPU operations with a single GPU kernel call.
+/// CRITICAL for BSGS performance.
+fn flat_to_strided_gpu(
+    flat_data: &[u64],
+    n: usize,
+    stride: usize,
+    num_active_primes: usize,
+    ckks_ctx: &Arc<CudaCkksContext>,
+) -> Result<Vec<u64>, String> {
+    use cudarc::driver::LaunchAsync;
+
+    let total_elements = n * num_active_primes;
+    let output_size = n * stride;
+
+    // Copy to GPU
+    let gpu_input = ckks_ctx.device().device.htod_copy(flat_data[..total_elements].to_vec())
+        .map_err(|e| format!("Failed to copy to GPU: {:?}", e))?;
+
+    let mut gpu_output = ckks_ctx.device().device.alloc_zeros::<u64>(output_size)
+        .map_err(|e| format!("Failed to allocate GPU memory: {:?}", e))?;
+
+    // Get kernel
+    let func = ckks_ctx.device().device.get_func("rns_module", "rns_flat_to_strided")
+        .ok_or_else(|| "Failed to get rns_flat_to_strided kernel".to_string())?;
+
+    // Launch kernel
+    let threads_per_block = 256;
+    let num_blocks = (total_elements + threads_per_block - 1) / threads_per_block;
+    let cfg = cudarc::driver::LaunchConfig {
+        grid_dim: (num_blocks as u32, 1, 1),
+        block_dim: (threads_per_block as u32, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        func.launch(cfg, (
+            &gpu_input,
+            &mut gpu_output,
+            n as u32,
+            stride as u32,
+            num_active_primes as u32,
+        )).map_err(|e| format!("Failed to launch kernel: {:?}", e))?;
+    }
+
+    // Copy result back
+    ckks_ctx.device().device.dtoh_sync_copy(&gpu_output)
+        .map_err(|e| format!("Failed to copy from GPU: {:?}", e))
 }

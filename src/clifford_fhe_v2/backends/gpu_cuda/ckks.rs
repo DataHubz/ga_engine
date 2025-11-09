@@ -116,6 +116,8 @@ impl CudaCkksContext {
         device.device.load_ptx(ptx, "rns_module", &[
             "rns_exact_rescale",
             "rns_exact_rescale_strided",
+            "rns_strided_to_flat",
+            "rns_flat_to_strided",
             "rns_add",
             "rns_sub",
             "rns_negate",
@@ -621,17 +623,43 @@ impl CudaCkksContext {
         Ok((c0_result, c1_result, c2_result))
     }
 
-    /// Helper: Convert from strided to flat RNS layout
+    /// Helper: Convert from strided to flat RNS layout (GPU-accelerated!)
+    ///
+    /// This replaces ~650k CPU operations with a single GPU kernel call.
+    /// CRITICAL for BSGS performance - called 4× per multiplication.
     fn strided_to_flat(&self, data: &[u64], n: usize, stride: usize, num_primes: usize) -> Vec<u64> {
-        let mut flat = vec![0u64; n * num_primes];
-        for coeff_idx in 0..n {
-            for prime_idx in 0..num_primes {
-                let strided_idx = coeff_idx * stride + prime_idx;
-                let flat_idx = prime_idx * n + coeff_idx;
-                flat[flat_idx] = data[strided_idx];
-            }
+        use cudarc::driver::LaunchAsync;
+
+        let total_elements = n * num_primes;
+
+        // Copy to GPU
+        let gpu_input = self.device.device.htod_copy(data.to_vec())
+            .expect("Failed to copy to GPU");
+
+        let mut gpu_output = self.device.device.alloc_zeros::<u64>(total_elements)
+            .expect("Failed to allocate GPU memory");
+
+        // Get kernel
+        let func = self.device.device.get_func("rns_module", "rns_strided_to_flat")
+            .expect("Failed to get rns_strided_to_flat kernel");
+
+        // Launch kernel
+        let threads_per_block = 256;
+        let num_blocks = (total_elements + threads_per_block - 1) / threads_per_block;
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (num_blocks as u32, 1, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        unsafe {
+            func.launch(cfg, (&gpu_input, &mut gpu_output, n as u32, stride as u32, num_primes as u32))
+                .expect("Failed to launch rns_strided_to_flat kernel");
         }
-        flat
+
+        // Copy result back
+        self.device.device.dtoh_sync_copy(&gpu_output)
+            .expect("Failed to copy from GPU")
     }
 
     /// Add two RNS polynomials using GPU kernel (flat layout)
