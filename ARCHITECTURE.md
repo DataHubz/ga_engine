@@ -277,9 +277,9 @@ Core docs (kept):
 3. **Optimization**: Pipeline overlapping, persistent GPU buffers
 4. **Portability**: Vulkan backend for cross-platform GPU support
 
-## Authors
+## Author
 
-Implementation by David Silva with Claude Code assistance.
+Implementation by David Silva (contact@davidwsilva.com | dsilva@datahubz.com).
 
 ## License
 

@@ -345,9 +345,9 @@ cargo run --release --features v2,v2-gpu-metal,v3 --example test_metal_gpu_boots
 - **Bootstrap Paper**: Chen & Han (2018) "Homomorphic Lower Digits Removal and Improved FHE Bootstrapping"
 - **RNS Representation**: Bajard et al. (2016) "A Full RNS Variant of FV like Somewhat Homomorphic Encryption Schemes"
 
-## Authors
+## Author
 
-Implementation by David Silva with Claude Code assistance.
+Implementation by David Silva (contact@davidwsilva.com | dsilva@datahubz.com).
 
 ## License
 

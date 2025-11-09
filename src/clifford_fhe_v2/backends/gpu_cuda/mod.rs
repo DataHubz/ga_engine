@@ -24,7 +24,13 @@ pub mod ntt;
 pub mod geometric;
 
 #[cfg(feature = "v2-gpu-cuda")]
+pub mod ckks;
+
+#[cfg(feature = "v2-gpu-cuda")]
 pub use geometric::CudaGeometricProduct;
+
+#[cfg(feature = "v2-gpu-cuda")]
+pub use ckks::{CudaCkksContext, CudaCiphertext, CudaPlaintext};
 
 #[cfg(feature = "v2-gpu-cuda")]
 use crate::clifford_fhe_v2::core::{BackendCapabilities, BackendInfo};
