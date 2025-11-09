@@ -495,7 +495,10 @@ fn cuda_subtract_ciphertexts(
     })
 }
 
-/// Rescale ciphertext down by one level
+/// Rescale ciphertext down by one level (GPU-optimized strided version)
+///
+/// Uses exact_rescale_gpu_strided which avoids expensive CPU layout conversions.
+/// This is CRITICAL for BSGS performance - saves ~1.3M CPU operations per rescale!
 fn cuda_rescale_down(
     ct: &CudaCiphertext,
     ckks_ctx: &Arc<CudaCkksContext>,
@@ -507,9 +510,9 @@ fn cuda_rescale_down(
     let n = ct.n;
     let num_primes = ct.num_primes;
 
-    // Rescale using GPU
-    let c0_rescaled = ckks_ctx.exact_rescale_gpu(&ct.c0, num_primes - 1)?;
-    let c1_rescaled = ckks_ctx.exact_rescale_gpu(&ct.c1, num_primes - 1)?;
+    // Rescale using GPU strided kernel (NO layout conversion!)
+    let c0_rescaled = ckks_ctx.exact_rescale_gpu_strided(&ct.c0, num_primes - 1)?;
+    let c1_rescaled = ckks_ctx.exact_rescale_gpu_strided(&ct.c1, num_primes - 1)?;
 
     Ok(CudaCiphertext {
         c0: c0_rescaled,

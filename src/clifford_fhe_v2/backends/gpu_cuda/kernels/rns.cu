@@ -128,6 +128,64 @@ __global__ void rns_exact_rescale(
 }
 
 /**
+ * RNS Exact Rescaling with Centered Rounding - STRIDED LAYOUT VERSION
+ *
+ * Same algorithm as rns_exact_rescale, but works directly on strided layout.
+ * This avoids expensive CPU layout conversions (1.3M operations per rescale).
+ *
+ * Input layout:  poly_in[coeff_idx * num_primes_in + prime_idx] (strided)
+ * Output layout: poly_out[coeff_idx * num_primes_out + prime_idx] (strided)
+ */
+__global__ void rns_exact_rescale_strided(
+    const unsigned long long* poly_in,        // Input: strided layout
+    unsigned long long* poly_out,             // Output: strided layout
+    const unsigned long long* moduli,         // RNS moduli: [num_primes_in]
+    const unsigned long long* qtop_inv,       // q_last^{-1} mod q_i: [num_primes_out]
+    unsigned int n,                           // Ring dimension
+    unsigned int num_primes_in,               // Number of input primes
+    unsigned int num_primes_out               // Number of output primes (= num_primes_in - 1)
+) {
+    unsigned int coeff_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (coeff_idx >= n) return;
+
+    // Last prime is being dropped (q_top = moduli[num_primes_in - 1])
+    unsigned int top_idx = num_primes_in - 1;
+
+    // Get q_top and r_top from strided layout
+    unsigned long long q_top = moduli[top_idx];
+    unsigned long long r_top = poly_in[coeff_idx * num_primes_in + top_idx];
+
+    // Step 1: Add (q_top-1)/2 to r_top for centered rounding (mod q_top)
+    unsigned long long half_qtop = q_top >> 1;
+    unsigned long long r_top_rounded = add_mod_lazy(r_top, half_qtop, q_top);
+    if (r_top_rounded >= q_top) r_top_rounded -= q_top;
+
+    // Step 2: For each output prime q_i (all primes except q_top)
+    for (unsigned int i = 0; i < num_primes_out; i++) {
+        unsigned long long q_i = moduli[i];
+        unsigned long long r_i = poly_in[coeff_idx * num_primes_in + i];
+        unsigned long long q_inv = qtop_inv[i];
+
+        // Reduce r_top_rounded mod q_i
+        unsigned long long r_top_mod_qi = r_top_rounded % q_i;
+
+        // Subtract half for centered rounding correction
+        unsigned long long half_mod_qi = half_qtop % q_i;
+        unsigned long long r_top_corrected = sub_mod(r_top_mod_qi, half_mod_qi, q_i);
+
+        // diff = (r_i - r_top_corrected) mod q_i
+        unsigned long long diff = sub_mod(r_i, r_top_corrected, q_i);
+
+        // result = (diff * q_top^{-1}) mod q_i
+        unsigned long long result = mul_mod_128(diff, q_inv, q_i);
+
+        // Store in strided layout: poly_out[coeff_idx * num_primes_out + prime_idx]
+        poly_out[coeff_idx * num_primes_out + i] = result;
+    }
+}
+
+/**
  * Polynomial addition in RNS representation
  * c[i] = (a[i] + b[i]) % q for each RNS limb
  */

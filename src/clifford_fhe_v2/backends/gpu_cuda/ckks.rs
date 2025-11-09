@@ -115,6 +115,7 @@ impl CudaCkksContext {
 
         device.device.load_ptx(ptx, "rns_module", &[
             "rns_exact_rescale",
+            "rns_exact_rescale_strided",
             "rns_add",
             "rns_sub",
             "rns_negate",
@@ -231,15 +232,18 @@ impl CudaCkksContext {
 
         assert_eq!(poly_in.len(), n * num_primes_in, "Input size mismatch");
 
-        // Convert from strided layout to flat RNS layout for GPU
+        // Convert from strided layout to flat RNS layout for GPU (parallelized)
         // Strided: poly_in[coeff_idx * num_primes_in + prime_idx]
         // Flat:    poly_flat[prime_idx * n + coeff_idx]
-        let mut poly_flat = vec![0u64; n * num_primes_in];
-        for coeff_idx in 0..n {
-            for prime_idx in 0..num_primes_in {
-                poly_flat[prime_idx * n + coeff_idx] = poly_in[coeff_idx * num_primes_in + prime_idx];
-            }
-        }
+        use rayon::prelude::*;
+        let poly_flat: Vec<u64> = (0..num_primes_in)
+            .into_par_iter()
+            .flat_map(|prime_idx| {
+                (0..n)
+                    .map(|coeff_idx| poly_in[coeff_idx * num_primes_in + prime_idx])
+                    .collect::<Vec<_>>()
+            })
+            .collect();
 
         // Get precomputed constants
         // Table is indexed from level-1 (since level 0 doesn't rescale)
@@ -288,6 +292,68 @@ impl CudaCkksContext {
                 result[coeff_idx * num_primes_out + prime_idx] = result_flat[prime_idx * n + coeff_idx];
             }
         }
+
+        Ok(result)
+    }
+
+    /// Rescale polynomial in strided RNS layout (GPU-optimized, NO layout conversion!)
+    ///
+    /// This is MUCH faster than exact_rescale_gpu because it avoids expensive CPU layout conversions.
+    /// Use this for V3 bootstrap operations where ciphertexts are in strided format.
+    ///
+    /// Input and output are in strided layout: poly[coeff_idx * num_primes + prime_idx]
+    pub fn exact_rescale_gpu_strided(&self, poly_in: &[u64], level: usize) -> Result<Vec<u64>, String> {
+        if level == 0 {
+            return Err("Cannot rescale at level 0".to_string());
+        }
+
+        let n = self.params.n;
+        let moduli = &self.params.moduli[..=level];
+        let num_primes_in = moduli.len();
+        let num_primes_out = num_primes_in - 1;
+
+        assert_eq!(poly_in.len(), n * num_primes_in, "Input size mismatch");
+
+        // NO LAYOUT CONVERSION NEEDED - input is already strided, output will be strided!
+
+        // Get precomputed constants
+        let qlast_inv = &self.rescale_inv_table[level - 1];
+        assert_eq!(qlast_inv.len(), num_primes_out, "qlast_inv table size mismatch");
+
+        // Copy to GPU in strided format
+        let gpu_input = self.device.device.htod_copy(poly_in.to_vec())
+            .map_err(|e| format!("Failed to copy input to GPU: {:?}", e))?;
+
+        let mut gpu_output = self.device.device.alloc_zeros::<u64>(n * num_primes_out)
+            .map_err(|e| format!("Failed to allocate output: {:?}", e))?;
+
+        let gpu_moduli = self.device.device.htod_copy(moduli.to_vec())
+            .map_err(|e| format!("Failed to copy moduli: {:?}", e))?;
+
+        let gpu_qtop_inv = self.device.device.htod_copy(qlast_inv.clone())
+            .map_err(|e| format!("Failed to copy qtop_inv: {:?}", e))?;
+
+        // Get strided kernel function
+        let func = self.device.device.get_func("rns_module", "rns_exact_rescale_strided")
+            .ok_or("Failed to get rns_exact_rescale_strided function")?;
+
+        // Launch kernel
+        let config = self.device.get_launch_config(n);
+        unsafe {
+            func.launch(config, (
+                &gpu_input,
+                &mut gpu_output,
+                &gpu_moduli,
+                &gpu_qtop_inv,
+                n as u32,
+                num_primes_in as u32,
+                num_primes_out as u32,
+            )).map_err(|e| format!("Rescale kernel launch failed: {:?}", e))?;
+        }
+
+        // Copy result back - already in strided format!
+        let result = self.device.device.dtoh_sync_copy(&gpu_output)
+            .map_err(|e| format!("Failed to copy from GPU: {:?}", e))?;
 
         Ok(result)
     }

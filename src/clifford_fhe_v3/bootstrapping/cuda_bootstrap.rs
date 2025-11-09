@@ -215,7 +215,8 @@ impl CudaBootstrapContext {
     }
 }
 
-/// CUDA ciphertext structure
+/// CUDA ciphertext structure (uses STRIDED RNS layout by default)
+/// Layout: poly[coeff_idx * num_primes + prime_idx]
 #[derive(Clone)]
 pub struct CudaCiphertext {
     pub c0: Vec<u64>,
