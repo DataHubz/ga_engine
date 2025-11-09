@@ -192,7 +192,21 @@ fn cuda_eval_polynomial_bsgs(
 
     for g in 0..giant_steps {
         // Evaluate baby steps for this giant step
-        // We need to track the minimum level we'll encounter
+        // Compute the minimum level we'll encounter in this iteration
+        let min_level = (0..baby_steps)
+            .filter_map(|b| {
+                let idx = g * baby_steps + b;
+                if idx >= coeffs.len() || coeffs[idx].abs() <= 1e-10 {
+                    None
+                } else if b == 0 {
+                    Some(ct.level)  // b=0 term doesn't consume a level
+                } else {
+                    Some(x_powers[b-1].level - 1)  // Multiply consumes one level
+                }
+            })
+            .min()
+            .unwrap_or(ct.level);
+
         let mut baby_sum: Option<CudaCiphertext> = None;
 
         for b in 0..baby_steps {
@@ -203,36 +217,20 @@ fn cuda_eval_polynomial_bsgs(
 
             let coeff = coeffs[idx];
             if coeff.abs() > 1e-10 {
-                let term = if b == 0 {
-                    // For b=0, create constant at the target level
-                    // The target level is what we'll get after the giant step multiplication
-                    let target_level = if baby_sum.is_none() {
-                        // First term - we don't know the level yet, use ct.level
-                        ct.level
-                    } else {
-                        baby_sum.as_ref().unwrap().level
-                    };
-                    cuda_create_constant_ciphertext(coeff, ct.n, target_level, ckks_ctx)?
+                let mut term = if b == 0 {
+                    cuda_create_constant_ciphertext(coeff, ct.n, min_level, ckks_ctx)?
                 } else {
                     let ct_coeff = cuda_create_constant_ciphertext(coeff, ct.n, x_powers[b-1].level, ckks_ctx)?;
                     cuda_multiply_ciphertexts(&ct_coeff, &x_powers[b-1], ckks_ctx, relin_keys)?
                 };
 
-                // Add to baby_sum, handling level matching
-                baby_sum = if let Some(mut sum) = baby_sum {
-                    // Match levels before adding
-                    if sum.level != term.level {
-                        // Rescale the higher-level ciphertext to match the lower one
-                        if sum.level > term.level {
-                            // Rescale sum down to term's level
-                            while sum.level > term.level {
-                                sum = cuda_rescale_down(&sum, ckks_ctx)?;
-                            }
-                        } else {
-                            // This shouldn't happen in normal BSGS, but handle it
-                            return Err(format!("Unexpected level mismatch: baby_sum.level={} < term.level={}", sum.level, term.level));
-                        }
-                    }
+                // Rescale term down to min_level if needed
+                while term.level > min_level {
+                    term = cuda_rescale_down(&term, ckks_ctx)?;
+                }
+
+                // Add to baby_sum
+                baby_sum = if let Some(sum) = baby_sum {
                     Some(cuda_add_ciphertexts(&sum, &term)?)
                 } else {
                     Some(term)
@@ -247,17 +245,15 @@ fn cuda_eval_polynomial_bsgs(
         };
 
         // Multiply by giant step power and add to result
-        let term = cuda_multiply_ciphertexts(&baby_sum, &x_giant_power, ckks_ctx, relin_keys)?;
+        let mut term = cuda_multiply_ciphertexts(&baby_sum, &x_giant_power, ckks_ctx, relin_keys)?;
 
         // Match levels before adding to result
-        if result.level != term.level {
-            if result.level > term.level {
-                while result.level > term.level {
-                    result = cuda_rescale_down(&result, ckks_ctx)?;
-                }
-            } else {
-                return Err(format!("Unexpected level mismatch in result: result.level={} < term.level={}", result.level, term.level));
-            }
+        let target_level = result.level.min(term.level);
+        while result.level > target_level {
+            result = cuda_rescale_down(&result, ckks_ctx)?;
+        }
+        while term.level > target_level {
+            term = cuda_rescale_down(&term, ckks_ctx)?;
         }
         result = cuda_add_ciphertexts(&result, &term)?;
 
