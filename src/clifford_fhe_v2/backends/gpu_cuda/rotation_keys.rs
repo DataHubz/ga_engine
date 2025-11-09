@@ -431,6 +431,16 @@ impl CudaRotationKeys {
     pub fn num_keys(&self) -> usize {
         self.keys.len()
     }
+
+    /// Get reference to rotation context
+    pub fn rotation_context(&self) -> &Arc<CudaRotationContext> {
+        &self.rotation_ctx
+    }
+
+    /// Get modulus for a given prime index
+    pub fn modulus(&self, prime_idx: usize) -> u64 {
+        self.params.moduli[prime_idx]
+    }
 }
 
 #[cfg(test)]

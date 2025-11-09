@@ -11,6 +11,7 @@ use ga_engine::clifford_fhe_v2::backends::gpu_cuda::ckks::CudaCkksContext;
 use ga_engine::clifford_fhe_v2::backends::gpu_cuda::device::CudaDeviceContext;
 use ga_engine::clifford_fhe_v2::backends::gpu_cuda::rotation::CudaRotationContext;
 use ga_engine::clifford_fhe_v2::backends::gpu_cuda::rotation_keys::CudaRotationKeys;
+use ga_engine::clifford_fhe_v2::backends::gpu_cuda::relin_keys::CudaRelinKeys;
 use ga_engine::clifford_fhe_v2::params::CliffordFHEParams;
 use ga_engine::clifford_fhe_v3::bootstrapping::cuda_bootstrap::{CudaBootstrapContext, CudaCiphertext};
 use ga_engine::clifford_fhe_v3::bootstrapping::BootstrapParams;
@@ -36,8 +37,8 @@ fn main() -> Result<(), String> {
     let ckks_ctx = Arc::new(CudaCkksContext::new(params.clone())?);
     let rotation_ctx = Arc::new(CudaRotationContext::new(device.clone(), params.clone())?);
 
-    // Step 3: Generate secret key and rotation keys
-    println!("Step 3: Generating secret key and rotation keys");
+    // Step 3: Generate secret key and keys
+    println!("Step 3: Generating secret key, rotation keys, and relinearization keys");
     let mut rng = rand::thread_rng();
     let mut secret_key = vec![0u64; n * num_primes];
 
@@ -49,6 +50,7 @@ fn main() -> Result<(), String> {
         }
     }
 
+    // Generate rotation keys
     let mut rotation_keys = CudaRotationKeys::new(
         device.clone(),
         params.clone(),
@@ -62,7 +64,16 @@ fn main() -> Result<(), String> {
     for &rot in &essential_rotations {
         rotation_keys.generate_rotation_key(rot)?;
     }
-    println!("  ✅ Generated {} rotation keys\n", rotation_keys.num_keys());
+    println!("  ✅ Generated {} rotation keys", rotation_keys.num_keys());
+
+    // Generate relinearization keys
+    let relin_keys = CudaRelinKeys::new(
+        device.clone(),
+        params.clone(),
+        secret_key.clone(),
+        16,  // base_bits = 16
+    )?;
+    println!("  ✅ Generated relinearization keys\n");
 
     // Step 4: Create bootstrap context
     println!("Step 4: Creating bootstrap context");
@@ -70,6 +81,7 @@ fn main() -> Result<(), String> {
         ckks_ctx.clone(),
         rotation_ctx.clone(),
         Arc::new(rotation_keys),
+        Arc::new(relin_keys),
         bootstrap_params,
         params.clone(),
     )?;
@@ -116,8 +128,8 @@ fn main() -> Result<(), String> {
     println!("  Output level: {}", ct_out.level);
     println!("  GPU acceleration: ✅");
     println!("═══════════════════════════════════════════════════════════════");
-    println!("✅ V3 CUDA GPU BOOTSTRAP WORKING");
-    println!("   (Using simplified pipeline - full C2S/S2C/EvalMod TODO)\n");
+    println!("✅ V3 CUDA GPU BOOTSTRAP COMPLETE");
+    println!("   Full implementation with relinearization!\n");
 
     Ok(())
 }

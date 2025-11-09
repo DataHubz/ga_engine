@@ -33,6 +33,9 @@ pub mod rotation;
 pub mod rotation_keys;
 
 #[cfg(feature = "v2-gpu-cuda")]
+pub mod relin_keys;
+
+#[cfg(feature = "v2-gpu-cuda")]
 pub use geometric::CudaGeometricProduct;
 
 #[cfg(feature = "v2-gpu-cuda")]
@@ -43,6 +46,9 @@ pub use rotation::CudaRotationContext;
 
 #[cfg(feature = "v2-gpu-cuda")]
 pub use rotation_keys::{CudaRotationKeys, RotationKey};
+
+#[cfg(feature = "v2-gpu-cuda")]
+pub use relin_keys::{CudaRelinKeys, RelinearizationKey};
 
 #[cfg(feature = "v2-gpu-cuda")]
 use crate::clifford_fhe_v2::core::{BackendCapabilities, BackendInfo};

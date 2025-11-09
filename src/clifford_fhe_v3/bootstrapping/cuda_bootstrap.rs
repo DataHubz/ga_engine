@@ -21,8 +21,12 @@
 use crate::clifford_fhe_v2::backends::gpu_cuda::ckks::CudaCkksContext;
 use crate::clifford_fhe_v2::backends::gpu_cuda::rotation::CudaRotationContext;
 use crate::clifford_fhe_v2::backends::gpu_cuda::rotation_keys::CudaRotationKeys;
+use crate::clifford_fhe_v2::backends::gpu_cuda::relin_keys::CudaRelinKeys;
 use crate::clifford_fhe_v2::params::CliffordFHEParams;
 use crate::clifford_fhe_v3::bootstrapping::BootstrapParams;
+use crate::clifford_fhe_v3::bootstrapping::cuda_coeff_to_slot::cuda_coeff_to_slot;
+use crate::clifford_fhe_v3::bootstrapping::cuda_slot_to_coeff::cuda_slot_to_coeff;
+use crate::clifford_fhe_v3::bootstrapping::cuda_eval_mod::cuda_eval_mod;
 use std::sync::Arc;
 
 /// CUDA GPU bootstrap context
@@ -35,6 +39,9 @@ pub struct CudaBootstrapContext {
 
     /// Rotation keys for key switching
     rotation_keys: Arc<CudaRotationKeys>,
+
+    /// Relinearization keys for ciphertext multiplication
+    relin_keys: Arc<CudaRelinKeys>,
 
     /// V3 bootstrap parameters
     bootstrap_params: BootstrapParams,
@@ -49,6 +56,7 @@ impl CudaBootstrapContext {
         ckks_ctx: Arc<CudaCkksContext>,
         rotation_ctx: Arc<CudaRotationContext>,
         rotation_keys: Arc<CudaRotationKeys>,
+        relin_keys: Arc<CudaRelinKeys>,
         bootstrap_params: BootstrapParams,
         params: CliffordFHEParams,
     ) -> Result<Self, String> {
@@ -60,6 +68,7 @@ impl CudaBootstrapContext {
             ckks_ctx,
             rotation_ctx,
             rotation_keys,
+            relin_keys,
             bootstrap_params,
             params,
         })
@@ -153,41 +162,26 @@ impl CudaBootstrapContext {
 
     /// Step 2: CoeffToSlot - transform coefficient encoding to slot encoding
     ///
-    /// Uses baby-step giant-step algorithm with rotations
+    /// Uses FFT-like butterfly algorithm with rotations
     fn coeff_to_slot(&self, ct: &CudaCiphertext) -> Result<CudaCiphertext, String> {
-        // Placeholder: Simple passthrough for now
-        // Full implementation requires:
-        // 1. Baby-step giant-step rotation algorithm
-        // 2. Linear transformations with precomputed constants
-        // 3. Key switching after each rotation
-
-        println!("  (Using simplified CoeffToSlot - full implementation TODO)");
-        Ok(ct.clone())
+        cuda_coeff_to_slot(ct, &self.rotation_keys, &self.ckks_ctx)
     }
 
     /// Step 3: EvalMod - evaluate modular reduction using sine approximation
     ///
     /// Removes noise by evaluating: f(x) = x - q/2π · sin(2πx/q)
     fn eval_mod(&self, ct: &CudaCiphertext) -> Result<CudaCiphertext, String> {
-        // Placeholder: Simple passthrough for now
-        // Full implementation requires:
-        // 1. Chebyshev or minimax polynomial approximation of sine
-        // 2. Homomorphic polynomial evaluation
-        // 3. Rescaling after each multiplication
-
-        println!("  (Using simplified EvalMod - full implementation TODO)");
-        Ok(ct.clone())
+        // Use the top-level modulus for EvalMod
+        let q = self.params.moduli[ct.level];
+        let sin_degree = self.bootstrap_params.sin_degree;
+        cuda_eval_mod(ct, q, sin_degree, &self.ckks_ctx, Some(&self.relin_keys))
     }
 
     /// Step 4: SlotToCoeff - transform slot encoding back to coefficient encoding
     ///
     /// Inverse of CoeffToSlot
     fn slot_to_coeff(&self, ct: &CudaCiphertext) -> Result<CudaCiphertext, String> {
-        // Placeholder: Simple passthrough for now
-        // Full implementation is inverse of CoeffToSlot
-
-        println!("  (Using simplified SlotToCoeff - full implementation TODO)");
-        Ok(ct.clone())
+        cuda_slot_to_coeff(ct, &self.rotation_keys, &self.ckks_ctx)
     }
 
     /// Step 5: Modulus switch - reduce ciphertext to target level

@@ -16,7 +16,8 @@ use crate::clifford_fhe_v2::backends::gpu_cuda::device::CudaDeviceContext;
 use crate::clifford_fhe_v2::params::CliffordFHEParams;
 use cudarc::driver::LaunchAsync;
 use cudarc::nvrtc::compile_ptx;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 /// CUDA rotation context with precomputed permutation maps
 pub struct CudaRotationContext {
@@ -26,7 +27,8 @@ pub struct CudaRotationContext {
     /// Permutation maps for each rotation amount
     /// Key: rotation steps (positive or negative)
     /// Value: permutation array perm[i] = index where coefficient i should move to
-    rotation_maps: std::collections::HashMap<i32, Vec<u32>>,
+    /// Using Mutex for interior mutability with Arc
+    rotation_maps: Mutex<HashMap<i32, Vec<u32>>>,
 
     /// Whether Galois kernels are loaded
     galois_kernels_loaded: bool,
@@ -42,7 +44,7 @@ impl CudaRotationContext {
         let mut ctx = Self {
             device,
             params,
-            rotation_maps: std::collections::HashMap::new(),
+            rotation_maps: Mutex::new(HashMap::new()),
             galois_kernels_loaded: false,
         };
 
@@ -60,7 +62,8 @@ impl CudaRotationContext {
             }
         }
 
-        println!("  ✅ Precomputed {} rotation maps\n", ctx.rotation_maps.len());
+        let num_maps = ctx.rotation_maps.lock().unwrap().len();
+        println!("  ✅ Precomputed {} rotation maps\n", num_maps);
 
         Ok(ctx)
     }
@@ -161,10 +164,14 @@ impl CudaRotationContext {
     }
 
     /// Get or compute rotation map for given rotation steps
-    fn get_or_compute_rotation_map(&mut self, rotation_steps: i32) -> Result<Vec<u32>, String> {
-        // Check cache
-        if let Some(map) = self.rotation_maps.get(&rotation_steps) {
-            return Ok(map.clone());
+    fn get_or_compute_rotation_map(&self, rotation_steps: i32) -> Result<Vec<u32>, String> {
+        // Check cache first (with read-only lock)
+        {
+            let maps = self.rotation_maps.lock()
+                .map_err(|e| format!("Failed to lock rotation_maps: {:?}", e))?;
+            if let Some(map) = maps.get(&rotation_steps) {
+                return Ok(map.clone());
+            }
         }
 
         // Compute new map
@@ -174,8 +181,12 @@ impl CudaRotationContext {
         // Convert to u32 (GPU kernel expects unsigned indices with sign bit)
         let perm_u32: Vec<u32> = perm_map.iter().map(|&x| x as u32).collect();
 
-        // Cache it
-        self.rotation_maps.insert(rotation_steps, perm_u32.clone());
+        // Cache it (with write lock)
+        {
+            let mut maps = self.rotation_maps.lock()
+                .map_err(|e| format!("Failed to lock rotation_maps for write: {:?}", e))?;
+            maps.insert(rotation_steps, perm_u32.clone());
+        }
 
         Ok(perm_u32)
     }
@@ -191,7 +202,7 @@ impl CudaRotationContext {
     ///    - Copy from source position to target position
     ///    - Negate if perm[i] was negative
     pub fn rotate_gpu(
-        &mut self,
+        &self,
         poly_in: &[u64],
         rotation_steps: i32,
         num_primes: usize,
@@ -251,6 +262,11 @@ impl CudaRotationContext {
     /// Get the parameters
     pub fn params(&self) -> &CliffordFHEParams {
         &self.params
+    }
+
+    /// Get the Galois element for a given rotation
+    pub fn galois_element(&self, rotation_steps: i32) -> u64 {
+        self.compute_galois_element(rotation_steps)
     }
 }
 
