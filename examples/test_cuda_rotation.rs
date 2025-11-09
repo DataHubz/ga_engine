@@ -91,9 +91,9 @@ fn main() -> Result<(), String> {
     // This should be the identity permutation
     println!("    (Skipped - rotation by 0 would need special handling)\n");
 
-    // Step 6: Test negative rotation (left rotation)
+    // Step 5: Test negative rotation (left rotation)
     println!("Step 5: Testing negative rotation (left rotation)");
-    let poly_rot_neg = rot_ctx.rotate_gpu(&poly_in, -1, num_primes)?;
+    let _poly_rot_neg = rot_ctx.rotate_gpu(&poly_in, -1, num_primes)?;
     println!("  ✅ Negative rotation completed\n");
 
     println!("═══════════════════════════════════════════════════════════════");
