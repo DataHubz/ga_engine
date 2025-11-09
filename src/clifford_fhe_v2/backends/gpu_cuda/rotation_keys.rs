@@ -142,6 +142,118 @@ impl CudaRotationKeys {
     ///
     /// # Arguments
     /// * `rotation_steps` - Number of slots to rotate (positive or negative)
+    /// Generate rotation key using GPU NTT for polynomial multiplication
+    ///
+    /// This is MUCH faster than the CPU version
+    pub fn generate_rotation_key_gpu(
+        &mut self,
+        rotation_steps: i32,
+        ntt_contexts: &[super::ntt::CudaNttContext],
+    ) -> Result<(), String> {
+        println!("Generating rotation key for rotation by {} slots...", rotation_steps);
+
+        let n = self.params.n;
+        let num_primes_key = self.params.moduli.len();
+
+        // Compute Galois element
+        let galois_elt = self.compute_galois_element(rotation_steps);
+        println!("  Galois element g: {}", galois_elt);
+
+        // Check if already generated
+        if self.keys.contains_key(&galois_elt) {
+            println!("  (Already cached)\n");
+            return Ok(());
+        }
+
+        // Apply Galois automorphism to secret key: s(X) → s(X^g)
+        let s_galois = self.apply_galois_to_secret_key(galois_elt)?;
+
+        // Generate dnum key switching components
+        let mut ks_components = Vec::new();
+        let mut rng = rand::thread_rng();
+
+        for digit_idx in 0..self.dnum {
+            // Generate random polynomial a_i
+            let mut a_i = vec![0u64; n * num_primes_key];
+            for prime_idx in 0..num_primes_key {
+                let q = self.params.moduli[prime_idx];
+                for coeff_idx in 0..n {
+                    a_i[prime_idx * n + coeff_idx] = rng.gen::<u64>() % q;
+                }
+            }
+
+            // Generate small error polynomial e_i (Gaussian, approximate with small uniform)
+            let mut e_i = vec![0u64; n * num_primes_key];
+            let error_bound = 16u64;  // Small error for security
+            for prime_idx in 0..num_primes_key {
+                let q = self.params.moduli[prime_idx];
+                for coeff_idx in 0..n {
+                    let e = (rng.gen::<u64>() % (2 * error_bound + 1)) as i64 - error_bound as i64;
+                    e_i[prime_idx * n + coeff_idx] = if e >= 0 {
+                        e as u64
+                    } else {
+                        (q as i64 + e) as u64
+                    };
+                }
+            }
+
+            // Compute b_i = -a_i · s(X^g) + e_i + w^i · s(X^g)
+            //             = (w^i - a_i) · s(X^g) + e_i
+
+            let w_power = self.base_w.pow(digit_idx as u32);
+
+            // First compute: (w^i - a_i) mod each prime
+            let mut w_minus_a = vec![0u64; n * num_primes_key];
+            for prime_idx in 0..num_primes_key {
+                let q = self.params.moduli[prime_idx];
+                let w_mod_q = w_power % q;
+                for coeff_idx in 0..n {
+                    let a_val = a_i[prime_idx * n + coeff_idx];
+                    w_minus_a[prime_idx * n + coeff_idx] = if w_mod_q >= a_val {
+                        w_mod_q - a_val
+                    } else {
+                        q - (a_val - w_mod_q)
+                    };
+                }
+            }
+
+            // Multiply (w^i - a_i) · s(X^g) using GPU NTT
+            let product = self.gpu_multiply_flat_ntt(&w_minus_a, &s_galois, num_primes_key, ntt_contexts)?;
+
+            // Add error: b_i = product + e_i
+            let mut b_i = vec![0u64; n * num_primes_key];
+            for prime_idx in 0..num_primes_key {
+                let q = self.params.moduli[prime_idx];
+                for coeff_idx in 0..n {
+                    let idx = prime_idx * n + coeff_idx;
+                    b_i[idx] = (product[idx] + e_i[idx]) % q;
+                }
+            }
+
+            ks_components.push((b_i, a_i));
+
+            if (digit_idx + 1) % 5 == 0 || digit_idx == self.dnum - 1 {
+                println!("  Generated {}/{} key switching components", digit_idx + 1, self.dnum);
+            }
+        }
+
+        // Store rotation key
+        let rot_key = RotationKey {
+            galois_elt,
+            ks_components,
+            num_primes_key,
+            n,
+        };
+
+        self.keys.insert(galois_elt, rot_key);
+        println!("  ✅ Rotation key generated\n");
+
+        Ok(())
+    }
+
+    /// Generate rotation key (CPU version - DEPRECATED)
+    ///
+    /// Use generate_rotation_key_gpu() instead for much better performance
     pub fn generate_rotation_key(&mut self, rotation_steps: i32) -> Result<(), String> {
         println!("Generating rotation key for rotation by {} slots...", rotation_steps);
 
@@ -210,7 +322,7 @@ impl CudaRotationKeys {
                 }
             }
 
-            // Multiply (w^i - a_i) · s(X^g) using CPU (GPU optimization TODO)
+            // Multiply (w^i - a_i) · s(X^g) using CPU (DEPRECATED - use GPU version)
             let product = self.cpu_multiply_flat(&w_minus_a, &s_galois, num_primes_key)?;
 
             // Add error: b_i = product + e_i
@@ -335,8 +447,48 @@ impl CudaRotationKeys {
         perm
     }
 
+    /// GPU polynomial multiplication in flat RNS layout using NTT
+    ///
+    /// This is MUCH faster than CPU schoolbook O(n²) - uses O(n log n) NTT
+    fn gpu_multiply_flat_ntt(
+        &self,
+        poly1: &[u64],
+        poly2: &[u64],
+        num_primes: usize,
+        ntt_contexts: &[super::ntt::CudaNttContext],
+    ) -> Result<Vec<u64>, String> {
+        let n = self.params.n;
+        let mut result = vec![0u64; n * num_primes];
+
+        // For each RNS prime, use GPU NTT multiplication
+        for prime_idx in 0..num_primes {
+            let ntt_ctx = &ntt_contexts[prime_idx];
+            let offset = prime_idx * n;
+
+            // Extract polynomials for this prime
+            let mut p1 = poly1[offset..offset + n].to_vec();
+            let mut p2 = poly2[offset..offset + n].to_vec();
+
+            // Transform to NTT domain (GPU)
+            ntt_ctx.forward(&mut p1)?;
+            ntt_ctx.forward(&mut p2)?;
+
+            // Pointwise multiply in NTT domain (GPU)
+            let mut prod = vec![0u64; n];
+            ntt_ctx.pointwise_multiply(&p1, &p2, &mut prod)?;
+
+            // Transform back to coefficient domain (GPU)
+            ntt_ctx.inverse(&mut prod)?;
+
+            // Store result
+            result[offset..offset + n].copy_from_slice(&prod);
+        }
+
+        Ok(result)
+    }
+
     /// Multiply two polynomials using CPU schoolbook (flat RNS layout)
-    /// TODO: Optimize with GPU NTT multiply
+    /// DEPRECATED: Use gpu_multiply_flat_ntt() instead for much better performance
     fn cpu_multiply_flat(&self, a: &[u64], b: &[u64], num_primes: usize) -> Result<Vec<u64>, String> {
         let n = self.params.n;
         let mut result = vec![0u64; n * num_primes];

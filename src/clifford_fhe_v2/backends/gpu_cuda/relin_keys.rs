@@ -129,8 +129,133 @@ impl CudaRelinKeys {
         Ok(ctx)
     }
 
-    /// Generate relinearization key for s^2 → s
+    /// Create new relinearization keys manager with GPU-accelerated key generation
     ///
+    /// This is MUCH faster than new() as it uses GPU NTT for polynomial multiplication
+    pub fn new_gpu(
+        device: Arc<CudaDeviceContext>,
+        params: CliffordFHEParams,
+        secret_key: Vec<u64>,
+        base_bits: usize,
+        ntt_contexts: &[super::ntt::CudaNttContext],
+    ) -> Result<Self, String> {
+        println!("\n╔═══════════════════════════════════════════════════════════════╗");
+        println!("║        Initializing CUDA Relinearization Keys                ║");
+        println!("╚═══════════════════════════════════════════════════════════════╝\n");
+
+        let base_w = 1u64 << base_bits;  // w = 2^base_bits
+
+        // Determine number of RNS primes for keys (use all available)
+        let num_primes_key = params.moduli.len();
+
+        // Calculate number of gadget digits
+        // dnum = ceil(log_w(Q_key)) where Q_key = product of all key primes
+        let total_bits: usize = params.moduli.iter()
+            .map(|&q| (64 - q.leading_zeros()) as usize)
+            .sum();
+        let dnum = (total_bits + base_bits - 1) / base_bits;
+
+        println!("Relinearization key parameters:");
+        println!("  Base w: 2^{} = {}", base_bits, base_w);
+        println!("  Number of primes (key level): {}", num_primes_key);
+        println!("  Number of gadget digits (dnum): {}", dnum);
+
+        // Create Barrett reducers for key level
+        let reducers_key: Vec<BarrettReducer> = params.moduli[..num_primes_key]
+            .iter()
+            .map(|&q| BarrettReducer::new(q))
+            .collect();
+
+        let mut ctx = Self {
+            device,
+            params,
+            reducers_key,
+            base_w,
+            dnum,
+            relin_key: None,
+        };
+
+        // Generate relinearization key using GPU
+        println!("\nGenerating relinearization key...");
+        let start = std::time::Instant::now();
+        ctx.generate_relin_key_gpu(&secret_key, ntt_contexts)?;
+        let elapsed = start.elapsed().as_secs_f64();
+        println!("  ✅ Relinearization key generated in {:.2}s\n", elapsed);
+
+        Ok(ctx)
+    }
+
+    /// Generate relinearization key using GPU NTT for polynomial multiplication
+    ///
+    /// This is MUCH faster than the CPU version
+    fn generate_relin_key_gpu(
+        &mut self,
+        secret_key: &[u64],
+        ntt_contexts: &[super::ntt::CudaNttContext],
+    ) -> Result<(), String> {
+        let n = self.params.n;
+        let num_primes_key = self.reducers_key.len();
+
+        // Compute s^2 (secret key squared) using GPU
+        let s_squared = self.compute_secret_key_squared_gpu(secret_key, num_primes_key, ntt_contexts)?;
+
+        // Generate key switching components
+        let mut ks_components = Vec::with_capacity(self.dnum);
+
+        for digit_idx in 0..self.dnum {
+            // Generate random polynomial a_i
+            let a_i = self.generate_random_poly(num_primes_key);
+
+            // Compute -a_i · s^2 using GPU NTT
+            let mut b_i = self.gpu_multiply_flat_ntt(&a_i, &s_squared, num_primes_key, ntt_contexts)?;
+
+            // Negate: -a_i · s^2
+            for i in 0..(n * num_primes_key) {
+                let prime_idx = i / n;
+                let q = self.params.moduli[prime_idx];
+                b_i[i] = if b_i[i] == 0 { 0 } else { q - b_i[i] };
+            }
+
+            // Add error term e_i ~ Gaussian
+            let e_i = self.generate_error_poly(num_primes_key);
+            for i in 0..(n * num_primes_key) {
+                let prime_idx = i / n;
+                let q = self.params.moduli[prime_idx];
+                b_i[i] = (b_i[i] + e_i[i]) % q;
+            }
+
+            // Add w^i · s
+            let power_of_w = self.base_w.pow(digit_idx as u32);
+            for coeff_idx in 0..n {
+                for prime_idx in 0..num_primes_key {
+                    let flat_idx = prime_idx * n + coeff_idx;
+                    let strided_idx = coeff_idx * num_primes_key + prime_idx;
+                    let q = self.params.moduli[prime_idx];
+                    let w_mod_q = (power_of_w % q) as u64;
+                    let s_val = secret_key[strided_idx];
+                    b_i[flat_idx] = (b_i[flat_idx] + w_mod_q * s_val) % q;
+                }
+            }
+
+            ks_components.push((b_i, a_i));
+
+            if (digit_idx + 1) % 5 == 0 || digit_idx == self.dnum - 1 {
+                println!("  Generated {}/{} key switching components", digit_idx + 1, self.dnum);
+            }
+        }
+
+        self.relin_key = Some(RelinearizationKey {
+            ks_components,
+            num_primes_key,
+            n,
+        });
+
+        Ok(())
+    }
+
+    /// Generate relinearization key for s^2 → s (CPU version - DEPRECATED)
+    ///
+    /// Use generate_relin_key_gpu() instead for much better performance
     /// Generates: RelinKey = {(b_i, a_i)} where b_i = -a_i·s^2 + e_i + w^i·s
     fn generate_relin_key(&mut self, secret_key: &[u64]) -> Result<(), String> {
         let n = self.params.n;
@@ -146,7 +271,7 @@ impl CudaRelinKeys {
             // Generate random polynomial a_i
             let a_i = self.generate_random_poly(num_primes_key);
 
-            // Compute -a_i · s^2 using CPU (TODO: GPU NTT multiply)
+            // Compute -a_i · s^2 using CPU (DEPRECATED - use GPU version)
             let mut b_i = self.cpu_multiply_flat(&a_i, &s_squared, num_primes_key)?;
 
             // Negate: -a_i · s^2
@@ -204,8 +329,31 @@ impl CudaRelinKeys {
             }
         }
 
-        // Multiply s * s using CPU (TODO: GPU NTT multiply)
+        // Multiply s * s using CPU (DEPRECATED - use GPU version)
         self.cpu_multiply_flat(&s_flat, &s_flat, num_primes)
+    }
+
+    /// Compute s^2 (secret key squared) using GPU NTT
+    fn compute_secret_key_squared_gpu(
+        &self,
+        secret_key: &[u64],
+        num_primes: usize,
+        ntt_contexts: &[super::ntt::CudaNttContext],
+    ) -> Result<Vec<u64>, String> {
+        let n = self.params.n;
+
+        // Convert from strided to flat layout
+        let mut s_flat = vec![0u64; n * num_primes];
+        for coeff_idx in 0..n {
+            for prime_idx in 0..num_primes {
+                let strided_idx = coeff_idx * num_primes + prime_idx;
+                let flat_idx = prime_idx * n + coeff_idx;
+                s_flat[flat_idx] = secret_key[strided_idx];
+            }
+        }
+
+        // Multiply s * s using GPU NTT
+        self.gpu_multiply_flat_ntt(&s_flat, &s_flat, num_primes, ntt_contexts)
     }
 
     /// Apply relinearization to reduce degree-2 ciphertext to degree-1

@@ -50,7 +50,7 @@ fn main() -> Result<(), String> {
         }
     }
 
-    // Generate rotation keys
+    // Generate rotation keys using GPU
     let mut rotation_keys = CudaRotationKeys::new(
         device.clone(),
         params.clone(),
@@ -70,16 +70,17 @@ fn main() -> Result<(), String> {
 
     println!("  Generating rotation keys for {} FFT levels: {:?}", num_fft_levels, bootstrap_rotations);
     for &rot in &bootstrap_rotations {
-        rotation_keys.generate_rotation_key(rot)?;
+        rotation_keys.generate_rotation_key_gpu(rot, ckks_ctx.ntt_contexts())?;
     }
     println!("  ✅ Generated {} rotation keys", rotation_keys.num_keys());
 
-    // Generate relinearization keys
-    let relin_keys = CudaRelinKeys::new(
+    // Generate relinearization keys using GPU
+    let relin_keys = CudaRelinKeys::new_gpu(
         device.clone(),
         params.clone(),
         secret_key.clone(),
         16,  // base_bits = 16
+        ckks_ctx.ntt_contexts(),
     )?;
     println!("  ✅ Generated relinearization keys\n");
 
