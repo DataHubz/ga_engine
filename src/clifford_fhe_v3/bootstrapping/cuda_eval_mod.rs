@@ -176,21 +176,15 @@ fn cuda_eval_polynomial_bsgs(
     // Precompute powers of x: x, x², x³, ..., x^baby_steps
     // Note: Each power will be at a progressively lower level due to rescaling
     let mut x_powers = vec![ct.clone()];
-    println!("        [DEBUG] x_powers[0] level = {}", x_powers[0].level);
     for i in 1..baby_steps {
         // Match levels before multiplying
         let mut x_base = x_powers[0].clone();
-        println!("        [DEBUG] Computing x_powers[{}]: x_base.level={}, x_powers[{}].level={}",
-                 i, x_base.level, i-1, x_powers[i-1].level);
         while x_base.level > x_powers[i-1].level {
             x_base = cuda_rescale_down(&x_base, ckks_ctx)?;
-            println!("          rescaled x_base to level {}", x_base.level);
         }
         let x_next = cuda_multiply_ciphertexts(&x_powers[i-1], &x_base, ckks_ctx, relin_keys)?;
-        println!("          x_powers[{}] level after multiply = {}", i, x_next.level);
         x_powers.push(x_next);
     }
-    println!("        [DEBUG] x_powers levels: {:?}", x_powers.iter().map(|x| x.level).collect::<Vec<_>>());
 
     // Compute giant step: x^baby_steps
     let x_giant = if baby_steps <= x_powers.len() {
@@ -203,19 +197,14 @@ fn cuda_eval_polynomial_bsgs(
         }
         cuda_multiply_ciphertexts(&x_powers[baby_steps - 2], &x_base, ckks_ctx, relin_keys)?
     };
-    println!("        [DEBUG] x_giant level = {}", x_giant.level);
 
     // Evaluate polynomial in blocks
-    println!("        [DEBUG] Creating result constant at level {}", ct.level);
     let mut result = cuda_create_constant_ciphertext(0.0, ct.n, ct.level, ckks_ctx)?;
-    println!("        [DEBUG] Creating x_giant_power constant at level {}", ct.level);
     let mut x_giant_power = cuda_create_constant_ciphertext(1.0, ct.n, ct.level, ckks_ctx)?;
-    println!("        [DEBUG] Constants created successfully");
 
     for g in 0..giant_steps {
         // Evaluate baby steps for this giant step
         // Compute the minimum level we'll encounter in this iteration
-        println!("        [DEBUG] Giant step g={}", g);
         let min_level = (0..baby_steps)
             .filter_map(|b| {
                 let idx = g * baby_steps + b;
@@ -229,7 +218,6 @@ fn cuda_eval_polynomial_bsgs(
             })
             .min()
             .unwrap_or(ct.level);
-        println!("        [DEBUG] min_level for g={} is {}", g, min_level);
 
         let mut baby_sum: Option<CudaCiphertext> = None;
 
@@ -240,7 +228,6 @@ fn cuda_eval_polynomial_bsgs(
             }
 
             let coeff = coeffs[idx];
-            println!("        [DEBUG] g={}, b={}, idx={}, coeff={:.6}, min_level={}", g, b, idx, coeff, min_level);
             if coeff.abs() > 1e-10 {
                 let mut term = if b == 0 {
                     cuda_create_constant_ciphertext(coeff, ct.n, min_level, ckks_ctx)?
@@ -248,23 +235,18 @@ fn cuda_eval_polynomial_bsgs(
                     let ct_coeff = cuda_create_constant_ciphertext(coeff, ct.n, x_powers[b-1].level, ckks_ctx)?;
                     cuda_multiply_ciphertexts(&ct_coeff, &x_powers[b-1], ckks_ctx, relin_keys)?
                 };
-                println!("          term.level={}, will rescale to {}", term.level, min_level);
 
                 // Rescale term down to min_level if needed
                 while term.level > min_level {
                     term = cuda_rescale_down(&term, ckks_ctx)?;
                 }
-                println!("          after rescale: term.level={}", term.level);
 
                 // Add to baby_sum
-                let baby_sum_level_before = baby_sum.as_ref().map(|s| s.level);
                 baby_sum = if let Some(sum) = baby_sum {
-                    println!("          adding: sum.level={}, term.level={}", sum.level, term.level);
                     Some(cuda_add_ciphertexts(&sum, &term, ckks_ctx)?)
                 } else {
                     Some(term)
                 };
-                println!("          baby_sum.level after add: {} (was {:?})", baby_sum.as_ref().unwrap().level, baby_sum_level_before);
             }
         }
 
@@ -285,9 +267,6 @@ fn cuda_eval_polynomial_bsgs(
         while x_giant_power_matched.level > multiply_target_level {
             x_giant_power_matched = cuda_rescale_down(&x_giant_power_matched, ckks_ctx)?;
         }
-        println!("        [DEBUG] Multiplying baby_sum (level {}, num_primes {}) by x_giant_power (level {}, num_primes {})",
-                 baby_sum_matched.level, baby_sum_matched.num_primes,
-                 x_giant_power_matched.level, x_giant_power_matched.num_primes);
         let mut term = cuda_multiply_ciphertexts(&baby_sum_matched, &x_giant_power_matched, ckks_ctx, relin_keys)?;
 
         // Match levels before adding to result
