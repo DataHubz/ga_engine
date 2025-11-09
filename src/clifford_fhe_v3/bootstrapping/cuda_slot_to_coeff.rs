@@ -71,7 +71,7 @@ pub fn cuda_slot_to_coeff(
             num_levels - level_idx, num_levels, rotation_amount, current.level);
 
         // Step 1: Rotate by +rotation_amount using GPU
-        let ct_rotated = cuda_rotate_ciphertext(&current, rotation_amount, rotation_keys)?;
+        let ct_rotated = cuda_rotate_ciphertext(&current, rotation_amount, rotation_keys, ckks_ctx)?;
 
         // Step 2: Compute inverse DFT twiddle factors (same as forward for real CKKS)
         let (diag1, diag2) = compute_inverse_dft_twiddle_factors(n, level_idx);

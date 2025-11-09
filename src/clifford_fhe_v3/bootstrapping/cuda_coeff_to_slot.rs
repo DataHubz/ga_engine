@@ -65,7 +65,7 @@ pub fn cuda_coeff_to_slot(
             level_idx + 1, num_levels, rotation_amount, current.level);
 
         // Step 1: Rotate by +rotation_amount using GPU
-        let ct_rotated = cuda_rotate_ciphertext(&current, rotation_amount, rotation_keys)?;
+        let ct_rotated = cuda_rotate_ciphertext(&current, rotation_amount, rotation_keys, ckks_ctx)?;
 
         // Step 2: Compute DFT twiddle factors
         let (diag1, diag2) = compute_dft_twiddle_factors(n, level_idx);
@@ -126,6 +126,7 @@ pub fn cuda_rotate_ciphertext(
     ct: &CudaCiphertext,
     rotation_steps: usize,
     rotation_keys: &Arc<CudaRotationKeys>,
+    ckks_ctx: &Arc<CudaCkksContext>,
 ) -> Result<CudaCiphertext, String> {
     let n = ct.n;
     let num_primes = ct.num_primes;
@@ -152,8 +153,13 @@ pub fn cuda_rotate_ciphertext(
     // Step 2: Compute Galois element for this rotation
     let galois_elt = rotation_ctx.galois_element(rotation_steps as i32);
 
-    // Step 3: Apply rotation key to c1(X^g)
-    let (c0_ks, c1_ks) = rotation_keys.apply_rotation_key(&c1_galois, galois_elt, level)?;
+    // Step 3: Apply rotation key to c1(X^g) using GPU NTT
+    let (c0_ks, c1_ks) = rotation_keys.apply_rotation_key_gpu(
+        &c1_galois,
+        galois_elt,
+        level,
+        ckks_ctx.ntt_contexts(),
+    )?;
 
     // Step 4: Add c0(X^g) + c0_ks
     let mut c0_result = vec![0u64; n * num_primes];

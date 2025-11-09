@@ -524,8 +524,53 @@ impl CudaRotationKeys {
         Ok(result)
     }
 
-    /// Apply rotation key to ciphertext component
+    /// Apply rotation key using GPU NTT for polynomial multiplication
     ///
+    /// This is MUCH faster than the CPU version
+    pub fn apply_rotation_key_gpu(
+        &self,
+        c1_galois: &[u64],
+        galois_elt: u64,
+        level: usize,
+        ntt_contexts: &[super::ntt::CudaNttContext],
+    ) -> Result<(Vec<u64>, Vec<u64>), String> {
+        // Get rotation key
+        let rot_key = self.keys.get(&galois_elt)
+            .ok_or_else(|| format!("Rotation key for galois element {} not found", galois_elt))?;
+
+        let n = self.params.n;
+        let num_primes = level + 1;
+
+        // Decompose c1(X^g) into base-w digits
+        let digits = self.gadget_decompose(c1_galois, num_primes)?;
+
+        // Initialize accumulator
+        let mut c0_acc = vec![0u64; n * num_primes];
+        let mut c1_acc = vec![0u64; n * num_primes];
+
+        // Accumulate: c0' += Σ d_i · b_i, c1' += Σ d_i · a_i
+        for (digit_idx, d_i) in digits.iter().enumerate() {
+            let (b_i, a_i) = &rot_key.ks_components[digit_idx];
+
+            // Multiply d_i · b_i using GPU NTT
+            let d_b = self.gpu_multiply_flat_ntt(d_i, b_i, num_primes, ntt_contexts)?;
+            // Multiply d_i · a_i using GPU NTT
+            let d_a = self.gpu_multiply_flat_ntt(d_i, a_i, num_primes, ntt_contexts)?;
+
+            // Accumulate
+            for i in 0..n * num_primes {
+                let q = self.params.moduli[i / n];
+                c0_acc[i] = (c0_acc[i] + d_b[i]) % q;
+                c1_acc[i] = (c1_acc[i] + d_a[i]) % q;
+            }
+        }
+
+        Ok((c0_acc, c1_acc))
+    }
+
+    /// Apply rotation key to ciphertext component (CPU version - DEPRECATED)
+    ///
+    /// Use apply_rotation_key_gpu() instead for much better performance
     /// Given c1(X^g), compute key-switched result using rotation key.
     /// This is used internally during rotation operations.
     pub fn apply_rotation_key(
@@ -552,9 +597,9 @@ impl CudaRotationKeys {
         for (digit_idx, d_i) in digits.iter().enumerate() {
             let (b_i, a_i) = &rot_key.ks_components[digit_idx];
 
-            // Multiply d_i · b_i (CPU for now)
+            // Multiply d_i · b_i (DEPRECATED - use GPU version)
             let d_b = self.cpu_multiply_flat(d_i, b_i, num_primes)?;
-            // Multiply d_i · a_i (CPU for now)
+            // Multiply d_i · a_i (DEPRECATED - use GPU version)
             let d_a = self.cpu_multiply_flat(d_i, a_i, num_primes)?;
 
             // Accumulate
