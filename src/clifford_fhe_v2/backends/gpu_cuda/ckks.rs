@@ -470,6 +470,103 @@ impl CudaCkksContext {
     pub fn params(&self) -> &CliffordFHEParams {
         &self.params
     }
+
+    /// Multiply two ciphertexts using GPU NTT-based polynomial multiplication
+    ///
+    /// Computes tensor product: (c0, c1) × (d0, d1) = (c0×d0, c0×d1 + c1×d0, c1×d1)
+    ///
+    /// Returns (c0_result, c1_result, c2_result) in flat RNS layout
+    /// Caller is responsible for relinearization to reduce back to size-2 ciphertext
+    pub fn multiply_ciphertexts_tensored(
+        &self,
+        ct1: &CudaCiphertext,
+        ct2: &CudaCiphertext,
+    ) -> Result<(Vec<u64>, Vec<u64>, Vec<u64>), String> {
+        if ct1.level != ct2.level {
+            return Err(format!("Level mismatch: {} vs {}", ct1.level, ct2.level));
+        }
+        if ct1.n != ct2.n {
+            return Err(format!("Ring dimension mismatch: {} vs {}", ct1.n, ct2.n));
+        }
+
+        let n = ct1.n;
+        let num_active_primes = ct1.level + 1;
+
+        // Convert from strided to flat layout for NTT operations
+        let c0_flat = self.strided_to_flat(&ct1.c0, n, ct1.num_primes, num_active_primes);
+        let c1_flat = self.strided_to_flat(&ct1.c1, n, ct1.num_primes, num_active_primes);
+        let d0_flat = self.strided_to_flat(&ct2.c0, n, ct2.num_primes, num_active_primes);
+        let d1_flat = self.strided_to_flat(&ct2.c1, n, ct2.num_primes, num_active_primes);
+
+        // Allocate results in flat layout
+        let mut c0_result = vec![0u64; n * num_active_primes]; // c0 × d0
+        let mut c1_result = vec![0u64; n * num_active_primes]; // c0 × d1 + c1 × d0
+        let mut c2_result = vec![0u64; n * num_active_primes]; // c1 × d1
+
+        // For each active RNS prime, do NTT-based polynomial multiplication
+        for prime_idx in 0..num_active_primes {
+            let offset = prime_idx * n;
+            let ntt_ctx = &self.ntt_contexts[prime_idx];
+
+            // Extract polynomials for this prime
+            let mut c0_prime = c0_flat[offset..offset + n].to_vec();
+            let mut c1_prime = c1_flat[offset..offset + n].to_vec();
+            let mut d0_prime = d0_flat[offset..offset + n].to_vec();
+            let mut d1_prime = d1_flat[offset..offset + n].to_vec();
+
+            // Transform to NTT domain
+            ntt_ctx.forward(&mut c0_prime)?;
+            ntt_ctx.forward(&mut c1_prime)?;
+            ntt_ctx.forward(&mut d0_prime)?;
+            ntt_ctx.forward(&mut d1_prime)?;
+
+            // Compute products in NTT domain
+            let mut prod_c0_d0 = vec![0u64; n];
+            let mut prod_c0_d1 = vec![0u64; n];
+            let mut prod_c1_d0 = vec![0u64; n];
+            let mut prod_c1_d1 = vec![0u64; n];
+
+            ntt_ctx.pointwise_multiply(&c0_prime, &d0_prime, &mut prod_c0_d0)?;
+            ntt_ctx.pointwise_multiply(&c0_prime, &d1_prime, &mut prod_c0_d1)?;
+            ntt_ctx.pointwise_multiply(&c1_prime, &d0_prime, &mut prod_c1_d0)?;
+            ntt_ctx.pointwise_multiply(&c1_prime, &d1_prime, &mut prod_c1_d1)?;
+
+            // Transform back to coefficient domain
+            ntt_ctx.inverse(&mut prod_c0_d0)?;
+            ntt_ctx.inverse(&mut prod_c0_d1)?;
+            ntt_ctx.inverse(&mut prod_c1_d0)?;
+            ntt_ctx.inverse(&mut prod_c1_d1)?;
+
+            // Combine results
+            let q = self.params.moduli[prime_idx];
+            for i in 0..n {
+                // c0_result = c0 × d0
+                c0_result[offset + i] = prod_c0_d0[i];
+
+                // c1_result = c0 × d1 + c1 × d0
+                let sum = (prod_c0_d1[i] as u128 + prod_c1_d0[i] as u128) % q as u128;
+                c1_result[offset + i] = sum as u64;
+
+                // c2_result = c1 × d1
+                c2_result[offset + i] = prod_c1_d1[i];
+            }
+        }
+
+        Ok((c0_result, c1_result, c2_result))
+    }
+
+    /// Helper: Convert from strided to flat RNS layout
+    fn strided_to_flat(&self, data: &[u64], n: usize, stride: usize, num_primes: usize) -> Vec<u64> {
+        let mut flat = vec![0u64; n * num_primes];
+        for coeff_idx in 0..n {
+            for prime_idx in 0..num_primes {
+                let strided_idx = coeff_idx * stride + prime_idx;
+                let flat_idx = prime_idx * n + coeff_idx;
+                flat[flat_idx] = data[strided_idx];
+            }
+        }
+        flat
+    }
 }
 
 #[cfg(test)]

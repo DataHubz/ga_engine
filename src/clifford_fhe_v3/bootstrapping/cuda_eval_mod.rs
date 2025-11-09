@@ -352,7 +352,7 @@ fn cuda_create_constant_ciphertext(
     })
 }
 
-/// Multiply two ciphertexts
+/// Multiply two ciphertexts using GPU NTT-based polynomial multiplication
 ///
 /// Implements tensor product multiplication: (a0, a1) × (b0, b1) = (c0, c1, c2)
 /// where:
@@ -360,6 +360,7 @@ fn cuda_create_constant_ciphertext(
 ///   c1 = a0 * b1 + a1 * b0
 ///   c2 = a1 * b1
 ///
+/// Uses GPU NTT for fast polynomial multiplication
 /// If relinearization keys are provided, reduces (c0, c1, c2) → (c0', c1')
 /// Otherwise, uses approximation: drops c2 term
 fn cuda_multiply_ciphertexts(
@@ -375,56 +376,33 @@ fn cuda_multiply_ciphertexts(
     let n = ct1.n;
     let num_primes = ct1.num_primes;
 
-    // Tensor product: (a0, a1) × (b0, b1) = (c0, c1, c2)
-    // c0 = a0 * b0
-    // c1 = a0 * b1 + a1 * b0
-    // c2 = a1 * b1
+    // Convert V3 ciphertexts to V2 format (structures are identical, just different types)
+    use crate::clifford_fhe_v2::backends::gpu_cuda::ckks::CudaCiphertext as V2CudaCiphertext;
 
-    let mut c0_result = vec![0u64; n * num_primes];
-    let mut c1_result = vec![0u64; n * num_primes];
-    let mut c2_result = vec![0u64; n * num_primes];
+    let ct1_v2 = V2CudaCiphertext {
+        c0: ct1.c0.clone(),
+        c1: ct1.c1.clone(),
+        n: ct1.n,
+        num_primes: ct1.num_primes,
+        level: ct1.level,
+        scale: ct1.scale,
+    };
 
-    // Compute c0, c1, and c2
-    for coeff_idx in 0..n {
-        for prime_idx in 0..num_primes {
-            let idx = coeff_idx * num_primes + prime_idx;
-            let q = ckks_ctx.params().moduli[prime_idx];
+    let ct2_v2 = V2CudaCiphertext {
+        c0: ct2.c0.clone(),
+        c1: ct2.c1.clone(),
+        n: ct2.n,
+        num_primes: ct2.num_primes,
+        level: ct2.level,
+        scale: ct2.scale,
+    };
 
-            let a0 = ct1.c0[idx];
-            let a1 = ct1.c1[idx];
-            let b0 = ct2.c0[idx];
-            let b1 = ct2.c1[idx];
-
-            // c0 = a0 * b0 (mod q)
-            c0_result[idx] = ((a0 as u128 * b0 as u128) % q as u128) as u64;
-
-            // c1 = a0 * b1 + a1 * b0 (mod q)
-            let term1 = ((a0 as u128 * b1 as u128) % q as u128) as u64;
-            let term2 = ((a1 as u128 * b0 as u128) % q as u128) as u64;
-            c1_result[idx] = (term1 + term2) % q;
-
-            // c2 = a1 * b1 (mod q)
-            c2_result[idx] = ((a1 as u128 * b1 as u128) % q as u128) as u64;
-        }
-    }
+    // Use GPU NTT-based polynomial multiplication
+    // This returns (c0, c1, c2) in flat RNS layout
+    let (c0_flat, c1_flat, c2_flat) = ckks_ctx.multiply_ciphertexts_tensored(&ct1_v2, &ct2_v2)?;
 
     // Apply relinearization if keys are available
     let (c0_final, c1_final) = if let Some(relin_keys) = relin_keys {
-        // Convert to flat layout for relinearization
-        let mut c0_flat = vec![0u64; n * num_primes];
-        let mut c1_flat = vec![0u64; n * num_primes];
-        let mut c2_flat = vec![0u64; n * num_primes];
-
-        for coeff_idx in 0..n {
-            for prime_idx in 0..num_primes {
-                let strided_idx = coeff_idx * num_primes + prime_idx;
-                let flat_idx = prime_idx * n + coeff_idx;
-                c0_flat[flat_idx] = c0_result[strided_idx];
-                c1_flat[flat_idx] = c1_result[strided_idx];
-                c2_flat[flat_idx] = c2_result[strided_idx];
-            }
-        }
-
         // Apply relinearization: (c0, c1, c2) → (c0', c1')
         let (c0_relin, c1_relin) = relin_keys.apply_relinearization(
             &c0_flat,
@@ -436,8 +414,9 @@ fn cuda_multiply_ciphertexts(
         // Convert back to strided layout
         let mut c0_strided = vec![0u64; n * num_primes];
         let mut c1_strided = vec![0u64; n * num_primes];
+        let num_active_primes = ct1.level + 1;
         for coeff_idx in 0..n {
-            for prime_idx in 0..num_primes {
+            for prime_idx in 0..num_active_primes {
                 let flat_idx = prime_idx * n + coeff_idx;
                 let strided_idx = coeff_idx * num_primes + prime_idx;
                 c0_strided[strided_idx] = c0_relin[flat_idx];
@@ -448,7 +427,19 @@ fn cuda_multiply_ciphertexts(
         (c0_strided, c1_strided)
     } else {
         // No relinearization keys: use approximation (drop c2)
-        (c0_result, c1_result)
+        // Convert flat to strided layout
+        let mut c0_strided = vec![0u64; n * num_primes];
+        let mut c1_strided = vec![0u64; n * num_primes];
+        let num_active_primes = ct1.level + 1;
+        for coeff_idx in 0..n {
+            for prime_idx in 0..num_active_primes {
+                let flat_idx = prime_idx * n + coeff_idx;
+                let strided_idx = coeff_idx * num_primes + prime_idx;
+                c0_strided[strided_idx] = c0_flat[flat_idx];
+                c1_strided[strided_idx] = c1_flat[flat_idx];
+            }
+        }
+        (c0_strided, c1_strided)
     };
 
     // New scale = scale1 * scale2
