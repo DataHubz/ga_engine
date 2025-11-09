@@ -294,6 +294,10 @@ fn cuda_eval_polynomial_bsgs(
 
         // Update giant step power
         if g < giant_steps - 1 {
+            // Match levels before multiplying
+            while x_giant_power.level > x_giant.level {
+                x_giant_power = cuda_rescale_down(&x_giant_power, ckks_ctx)?;
+            }
             x_giant_power = cuda_multiply_ciphertexts(&x_giant_power, &x_giant, ckks_ctx, relin_keys)?;
         }
     }
