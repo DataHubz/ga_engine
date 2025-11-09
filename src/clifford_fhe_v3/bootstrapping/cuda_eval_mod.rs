@@ -278,8 +278,9 @@ fn cuda_eval_polynomial_bsgs(
         while x_giant_power_matched.level > multiply_target_level {
             x_giant_power_matched = cuda_rescale_down(&x_giant_power_matched, ckks_ctx)?;
         }
-        println!("        [DEBUG] Multiplying baby_sum (level {}) by x_giant_power (level {})",
-                 baby_sum_matched.level, x_giant_power_matched.level);
+        println!("        [DEBUG] Multiplying baby_sum (level {}, num_primes {}) by x_giant_power (level {}, num_primes {})",
+                 baby_sum_matched.level, baby_sum_matched.num_primes,
+                 x_giant_power_matched.level, x_giant_power_matched.num_primes);
         let mut term = cuda_multiply_ciphertexts(&baby_sum_matched, &x_giant_power_matched, ckks_ctx, relin_keys)?;
 
         // Match levels before adding to result
@@ -294,11 +295,16 @@ fn cuda_eval_polynomial_bsgs(
 
         // Update giant step power
         if g < giant_steps - 1 {
-            // Match levels before multiplying
-            while x_giant_power.level > x_giant.level {
+            // Match levels before multiplying (same pattern as baby_sum × x_giant_power)
+            let mut x_giant_for_mult = x_giant.clone();
+            let mult_level = x_giant_power.level.min(x_giant_for_mult.level);
+            while x_giant_power.level > mult_level {
                 x_giant_power = cuda_rescale_down(&x_giant_power, ckks_ctx)?;
             }
-            x_giant_power = cuda_multiply_ciphertexts(&x_giant_power, &x_giant, ckks_ctx, relin_keys)?;
+            while x_giant_for_mult.level > mult_level {
+                x_giant_for_mult = cuda_rescale_down(&x_giant_for_mult, ckks_ctx)?;
+            }
+            x_giant_power = cuda_multiply_ciphertexts(&x_giant_power, &x_giant_for_mult, ckks_ctx, relin_keys)?;
         }
     }
 
