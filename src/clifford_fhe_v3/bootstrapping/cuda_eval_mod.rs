@@ -72,8 +72,15 @@ pub fn cuda_eval_mod(
     let rescale_factor = (q as f64) / (2.0 * PI);
     let ct_sin_scaled = cuda_multiply_by_constant(&ct_sin, rescale_factor, ckks_ctx, relin_keys)?;
 
+    // Match levels before subtraction
+    let mut ct_matched = ct.clone();
+    let target_level = ct_matched.level.min(ct_sin_scaled.level);
+    while ct_matched.level > target_level {
+        ct_matched = cuda_rescale_down(&ct_matched, ckks_ctx)?;
+    }
+
     // Subtract: result = ct - ct_sin_scaled
-    let ct_result = cuda_subtract_ciphertexts(ct, &ct_sin_scaled, ckks_ctx)?;
+    let ct_result = cuda_subtract_ciphertexts(&ct_matched, &ct_sin_scaled, ckks_ctx)?;
 
     println!("  [CUDA EvalMod] Complete: level={}, scale={:.2e}",
         ct_result.level, ct_result.scale);
