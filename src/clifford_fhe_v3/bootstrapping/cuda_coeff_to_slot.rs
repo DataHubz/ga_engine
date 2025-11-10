@@ -132,18 +132,9 @@ pub fn cuda_rotate_ciphertext(
     let num_primes = ct.num_primes;
     let level = ct.level;
 
-    // Convert to flat RNS layout for GPU rotation
-    let mut c0_flat = vec![0u64; n * num_primes];
-    let mut c1_flat = vec![0u64; n * num_primes];
-
-    for coeff_idx in 0..n {
-        for prime_idx in 0..num_primes {
-            let strided_idx = coeff_idx * num_primes + prime_idx;
-            let flat_idx = prime_idx * n + coeff_idx;
-            c0_flat[flat_idx] = ct.c0[strided_idx];
-            c1_flat[flat_idx] = ct.c1[strided_idx];
-        }
-    }
+    // Convert to flat RNS layout using V2 GPU function
+    let c0_flat = ckks_ctx.strided_to_flat(&ct.c0, n, ct.num_primes, num_primes);
+    let c1_flat = ckks_ctx.strided_to_flat(&ct.c1, n, ct.num_primes, num_primes);
 
     // Step 1: Apply Galois automorphism to c0 and c1 using GPU
     let rotation_ctx = rotation_keys.rotation_context();
@@ -161,26 +152,12 @@ pub fn cuda_rotate_ciphertext(
         ckks_ctx.ntt_contexts(),
     )?;
 
-    // Step 4: Add c0(X^g) + c0_ks
-    let mut c0_result = vec![0u64; n * num_primes];
-    for i in 0..(n * num_primes) {
-        let prime_idx = i / n;
-        let q = rotation_keys.modulus(prime_idx);
-        c0_result[i] = (c0_galois[i] + c0_ks[i]) % q;
-    }
+    // Step 4: Add c0(X^g) + c0_ks using V2 GPU function
+    let c0_result = ckks_ctx.add_polynomials_gpu(&c0_galois, &c0_ks, num_primes)?;
 
-    // Convert back from flat to strided layout
-    let mut c0_strided = vec![0u64; n * num_primes];
-    let mut c1_strided = vec![0u64; n * num_primes];
-
-    for coeff_idx in 0..n {
-        for prime_idx in 0..num_primes {
-            let flat_idx = prime_idx * n + coeff_idx;
-            let strided_idx = coeff_idx * num_primes + prime_idx;
-            c0_strided[strided_idx] = c0_result[flat_idx];
-            c1_strided[strided_idx] = c1_ks[flat_idx];
-        }
-    }
+    // Convert back from flat to strided layout using V2 GPU function
+    let c0_strided = ckks_ctx.flat_to_strided(&c0_result, n, num_primes, num_primes);
+    let c1_strided = ckks_ctx.flat_to_strided(&c1_ks, n, num_primes, num_primes);
 
     Ok(CudaCiphertext {
         c0: c0_strided,
@@ -258,8 +235,7 @@ pub fn cuda_multiply_plain(
 
 /// Add two ciphertexts (assumes levels and scales match)
 ///
-/// This uses the same proven logic as V2 CUDA `CudaCkksContext::add()` method.
-/// Uses proper modular arithmetic with access to the RNS moduli.
+/// Uses V2's GPU-accelerated add_polynomials_gpu() for parallel computation.
 pub fn cuda_add_ciphertexts(
     ct1: &CudaCiphertext,
     ct2: &CudaCiphertext,
@@ -274,26 +250,19 @@ pub fn cuda_add_ciphertexts(
     let num_active_primes = ct1.level + 1;
     let num_primes = ct1.num_primes;
 
-    // Allocate result with same stride as input
-    let mut c0 = vec![0u64; n * num_primes];
-    let mut c1 = vec![0u64; n * num_primes];
+    // Convert to flat layout
+    let c0_1_flat = ckks_ctx.strided_to_flat(&ct1.c0, n, num_primes, num_active_primes);
+    let c1_1_flat = ckks_ctx.strided_to_flat(&ct1.c1, n, num_primes, num_active_primes);
+    let c0_2_flat = ckks_ctx.strided_to_flat(&ct2.c0, n, num_primes, num_active_primes);
+    let c1_2_flat = ckks_ctx.strided_to_flat(&ct2.c1, n, num_primes, num_active_primes);
 
-    // Add coefficient-wise using proper modular arithmetic
-    // This is the same logic as V2 CUDA CudaCkksContext::add()
-    for coeff_idx in 0..n {
-        for prime_idx in 0..num_active_primes {
-            let q = ckks_ctx.params().moduli[prime_idx];
-            let idx = coeff_idx * num_primes + prime_idx;
+    // Add on GPU
+    let c0_flat_result = ckks_ctx.add_polynomials_gpu(&c0_1_flat, &c0_2_flat, num_active_primes)?;
+    let c1_flat_result = ckks_ctx.add_polynomials_gpu(&c1_1_flat, &c1_2_flat, num_active_primes)?;
 
-            // c0 = ct1.c0 + ct2.c0 (mod q)
-            let sum0 = ct1.c0[idx] + ct2.c0[idx];
-            c0[idx] = if sum0 >= q { sum0 - q } else { sum0 };
-
-            // c1 = ct1.c1 + ct2.c1 (mod q)
-            let sum1 = ct1.c1[idx] + ct2.c1[idx];
-            c1[idx] = if sum1 >= q { sum1 - q } else { sum1 };
-        }
-    }
+    // Convert back to strided
+    let c0 = ckks_ctx.flat_to_strided(&c0_flat_result, n, num_primes, num_active_primes);
+    let c1 = ckks_ctx.flat_to_strided(&c1_flat_result, n, num_primes, num_active_primes);
 
     Ok(CudaCiphertext {
         c0,

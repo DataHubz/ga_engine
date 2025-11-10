@@ -803,7 +803,7 @@ impl CudaCkksContext {
     ///
     /// This replaces ~650k CPU operations with a single GPU kernel call.
     /// CRITICAL for BSGS performance - called 4× per multiplication.
-    fn strided_to_flat(&self, data: &[u64], n: usize, stride: usize, num_primes: usize) -> Vec<u64> {
+    pub fn strided_to_flat(&self, data: &[u64], n: usize, stride: usize, num_primes: usize) -> Vec<u64> {
         use cudarc::driver::LaunchAsync;
 
         let total_elements = n * num_primes;
@@ -831,6 +831,48 @@ impl CudaCkksContext {
         unsafe {
             func.launch(cfg, (&gpu_input, &mut gpu_output, n as u32, stride as u32, num_primes as u32))
                 .expect("Failed to launch rns_strided_to_flat kernel");
+        }
+
+        // Copy result back
+        self.device.device.dtoh_sync_copy(&gpu_output)
+            .expect("Failed to copy from GPU")
+    }
+
+    /// Helper: Convert from flat to strided RNS layout (GPU-accelerated!)
+    ///
+    /// This is the inverse of strided_to_flat().
+    /// Uses GPU kernel for parallel conversion - critical for rotation operations.
+    ///
+    /// Flat:    poly_in[prime_idx * n + coeff_idx]
+    /// Strided: poly_out[coeff_idx * stride + prime_idx]
+    pub fn flat_to_strided(&self, data: &[u64], n: usize, stride: usize, num_primes: usize) -> Vec<u64> {
+        use cudarc::driver::LaunchAsync;
+
+        let total_elements = n * num_primes;
+
+        // Copy to GPU
+        let gpu_input = self.device.device.htod_copy(data.to_vec())
+            .expect("Failed to copy to GPU");
+
+        let mut gpu_output = self.device.device.alloc_zeros::<u64>(n * stride)
+            .expect("Failed to allocate GPU memory");
+
+        // Get kernel
+        let func = self.device.device.get_func("rns_module", "rns_flat_to_strided")
+            .expect("Failed to get rns_flat_to_strided kernel");
+
+        // Launch kernel
+        let threads_per_block = 256;
+        let num_blocks = (total_elements + threads_per_block - 1) / threads_per_block;
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (num_blocks as u32, 1, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        unsafe {
+            func.launch(cfg, (&gpu_input, &mut gpu_output, n as u32, stride as u32, num_primes as u32))
+                .expect("Failed to launch rns_flat_to_strided kernel");
         }
 
         // Copy result back
@@ -1402,6 +1444,74 @@ impl CudaCkksContext {
                     num_primes as u32,
                 ),
             ).map_err(|e| format!("Failed to launch rns_add kernel: {:?}", e))?;
+        }
+
+        // Copy result back to CPU
+        let result = self.device.device.dtoh_sync_copy(&c_gpu)
+            .map_err(|e| format!("Failed to copy result from GPU: {:?}", e))?;
+
+        Ok(result)
+    }
+
+    /// Subtract two polynomials in RNS representation using GPU
+    ///
+    /// Computes c[i] = (a[i] - b[i]) % q for each RNS limb
+    ///
+    /// Uses GPU rns_sub kernel for parallel computation.
+    pub fn subtract_polynomials_gpu(&self, a: &[u64], b: &[u64], num_primes: usize) -> Result<Vec<u64>, String> {
+        use cudarc::driver::LaunchAsync;
+
+        let n = self.params.n;
+        let total_elements = n * num_primes;
+
+        if a.len() < total_elements || b.len() < total_elements {
+            return Err(format!(
+                "Input polynomials too small: expected {}, got {} and {}",
+                total_elements, a.len(), b.len()
+            ));
+        }
+
+        // Copy inputs to GPU
+        let a_gpu = self.device.device.htod_copy(a[..total_elements].to_vec())
+            .map_err(|e| format!("Failed to copy a to GPU: {:?}", e))?;
+        let b_gpu = self.device.device.htod_copy(b[..total_elements].to_vec())
+            .map_err(|e| format!("Failed to copy b to GPU: {:?}", e))?;
+
+        // Allocate output on GPU
+        let c_gpu = self.device.device.alloc_zeros::<u64>(total_elements)
+            .map_err(|e| format!("Failed to allocate GPU memory: {:?}", e))?;
+
+        // Use cached moduli
+        let moduli_gpu = self.gpu_moduli.as_ref()
+            .ok_or("GPU moduli not cached")?;
+
+        // Get kernel function
+        let func = self.device.device.get_func("rns_module", "rns_sub")
+            .ok_or_else(|| "rns_sub kernel not found".to_string())?;
+
+        // Launch configuration
+        let threads_per_block = 256;
+        let num_blocks = (total_elements + threads_per_block - 1) / threads_per_block;
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (num_blocks as u32, 1, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        // Launch kernel
+        unsafe {
+            func.launch(
+                cfg,
+                (
+                    &a_gpu,
+                    &b_gpu,
+                    &c_gpu,
+                    moduli_gpu,
+                    n as u32,
+                    num_primes as u32,
+                ),
+            )
+            .map_err(|e| format!("Failed to launch rns_sub kernel: {:?}", e))?;
         }
 
         // Copy result back to CPU
