@@ -718,21 +718,33 @@ impl CudaCkksContext {
         let n = ct1.n;
         let num_active_primes = ct1.level + 1;
 
-        // Step 1: Convert strided→flat AND upload to GPU (4 uploads, but we'll optimize this)
-        let c0_flat = self.strided_to_flat(&ct1.c0, n, ct1.num_primes, num_active_primes);
-        let c1_flat = self.strided_to_flat(&ct1.c1, n, ct1.num_primes, num_active_primes);
-        let d0_flat = self.strided_to_flat(&ct2.c0, n, ct2.num_primes, num_active_primes);
-        let d1_flat = self.strided_to_flat(&ct2.c1, n, ct2.num_primes, num_active_primes);
+        // Step 1: Upload ciphertexts in strided format, then convert to flat ON GPU
+        // This eliminates 8 PCIe transfers (4 × strided_to_flat that each did upload+download)
 
-        // Upload to GPU ONCE
-        let mut gpu_c0 = self.device.device.htod_copy(c0_flat)
-            .map_err(|e| format!("Failed to upload c0: {:?}", e))?;
-        let mut gpu_c1 = self.device.device.htod_copy(c1_flat)
-            .map_err(|e| format!("Failed to upload c1: {:?}", e))?;
-        let mut gpu_d0 = self.device.device.htod_copy(d0_flat)
-            .map_err(|e| format!("Failed to upload d0: {:?}", e))?;
-        let mut gpu_d1 = self.device.device.htod_copy(d1_flat)
-            .map_err(|e| format!("Failed to upload d1: {:?}", e))?;
+        let gpu_c0_strided = self.device.device.htod_copy(ct1.c0.clone())
+            .map_err(|e| format!("Failed to upload c0 strided: {:?}", e))?;
+        let gpu_c1_strided = self.device.device.htod_copy(ct1.c1.clone())
+            .map_err(|e| format!("Failed to upload c1 strided: {:?}", e))?;
+        let gpu_d0_strided = self.device.device.htod_copy(ct2.c0.clone())
+            .map_err(|e| format!("Failed to upload d0 strided: {:?}", e))?;
+        let gpu_d1_strided = self.device.device.htod_copy(ct2.c1.clone())
+            .map_err(|e| format!("Failed to upload d1 strided: {:?}", e))?;
+
+        // Convert strided→flat on GPU
+        let total_elements = n * num_active_primes;
+        let mut gpu_c0 = self.device.device.alloc_zeros::<u64>(total_elements)
+            .map_err(|e| format!("Failed to allocate c0 flat: {:?}", e))?;
+        let mut gpu_c1 = self.device.device.alloc_zeros::<u64>(total_elements)
+            .map_err(|e| format!("Failed to allocate c1 flat: {:?}", e))?;
+        let mut gpu_d0 = self.device.device.alloc_zeros::<u64>(total_elements)
+            .map_err(|e| format!("Failed to allocate d0 flat: {:?}", e))?;
+        let mut gpu_d1 = self.device.device.alloc_zeros::<u64>(total_elements)
+            .map_err(|e| format!("Failed to allocate d1 flat: {:?}", e))?;
+
+        self.strided_to_flat_gpu(&gpu_c0_strided, &mut gpu_c0, n, ct1.num_primes, num_active_primes)?;
+        self.strided_to_flat_gpu(&gpu_c1_strided, &mut gpu_c1, n, ct1.num_primes, num_active_primes)?;
+        self.strided_to_flat_gpu(&gpu_d0_strided, &mut gpu_d0, n, ct2.num_primes, num_active_primes)?;
+        self.strided_to_flat_gpu(&gpu_d1_strided, &mut gpu_d1, n, ct2.num_primes, num_active_primes)?;
 
         // Step 2: Forward NTT - ALL on GPU!
         self.ntt_forward_batched_gpu(&mut gpu_c0, num_active_primes)?;
@@ -1289,6 +1301,48 @@ impl CudaCkksContext {
                 num_primes as u32,
             ))
             .map_err(|e| format!("Batched pointwise multiply failed: {:?}", e))?;
+        }
+
+        Ok(())
+    }
+
+    /// Convert strided layout to flat layout on GPU
+    ///
+    /// Strided: poly_in[coeff_idx * stride + prime_idx]
+    /// Flat:    poly_out[prime_idx * n + coeff_idx]
+    ///
+    /// This eliminates CPU↔GPU transfers compared to the old strided_to_flat()
+    /// which would download, convert on CPU, then upload again.
+    fn strided_to_flat_gpu(
+        &self,
+        gpu_strided: &CudaSlice<u64>,
+        gpu_flat: &mut CudaSlice<u64>,
+        n: usize,
+        stride: usize,
+        num_primes: usize,
+    ) -> Result<(), String> {
+        use cudarc::driver::LaunchAsync;
+
+        let func = self.device.device
+            .get_func("rns_module", "rns_strided_to_flat")
+            .ok_or("Failed to get rns_strided_to_flat kernel")?;
+
+        let total_elements = n * num_primes;
+        let threads_per_block = 256;
+        let num_blocks = (total_elements + threads_per_block - 1) / threads_per_block;
+
+        let cfg = LaunchConfig {
+            grid_dim: (num_blocks as u32, 1, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        unsafe {
+            func.launch(
+                cfg,
+                (gpu_strided, gpu_flat, n as u32, stride as u32, num_primes as u32),
+            )
+            .map_err(|e| format!("strided_to_flat GPU kernel failed: {:?}", e))?;
         }
 
         Ok(())
