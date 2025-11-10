@@ -33,6 +33,18 @@ pub struct CudaCkksContext {
 
     /// RNS kernels loaded flag
     rns_kernels_loaded: bool,
+
+    /// GPU-cached twiddles for batched NTT (all primes concatenated)
+    /// Layout: [prime_0 twiddles (n elements), prime_1 twiddles, ..., prime_L twiddles]
+    /// Total size: num_primes × n × u64
+    gpu_twiddles_fwd: Option<CudaSlice<u64>>,
+
+    /// GPU-cached inverse twiddles for batched NTT
+    gpu_twiddles_inv: Option<CudaSlice<u64>>,
+
+    /// GPU-cached RNS moduli for batched operations
+    /// Layout: [q_0, q_1, ..., q_L]
+    gpu_moduli: Option<CudaSlice<u64>>,
 }
 
 /// CUDA ciphertext representation
@@ -123,6 +135,39 @@ impl CudaCkksContext {
             "rns_negate",
         ]).map_err(|e| format!("Failed to load RNS PTX: {:?}", e))?;
 
+        // Precompute and cache twiddles on GPU for batched NTT
+        println!("Caching twiddles and moduli on GPU for batched NTT...");
+        let cache_start = std::time::Instant::now();
+
+        let n = params.n;
+        let num_primes = params.moduli.len();
+
+        // Collect all forward twiddles
+        let mut all_twiddles_fwd = Vec::with_capacity(n * num_primes);
+        let mut all_twiddles_inv = Vec::with_capacity(n * num_primes);
+        let mut all_moduli = Vec::with_capacity(num_primes);
+
+        for ntt_ctx in &ntt_contexts {
+            all_twiddles_fwd.extend_from_slice(&ntt_ctx.twiddles);
+            all_twiddles_inv.extend_from_slice(&ntt_ctx.twiddles_inv);
+            all_moduli.push(ntt_ctx.q);
+        }
+
+        // Upload to GPU once
+        let gpu_twiddles_fwd = device.device.htod_copy(all_twiddles_fwd)
+            .map_err(|e| format!("Failed to cache forward twiddles on GPU: {:?}", e))?;
+
+        let gpu_twiddles_inv = device.device.htod_copy(all_twiddles_inv)
+            .map_err(|e| format!("Failed to cache inverse twiddles on GPU: {:?}", e))?;
+
+        let gpu_moduli = device.device.htod_copy(all_moduli)
+            .map_err(|e| format!("Failed to cache moduli on GPU: {:?}", e))?;
+
+        println!("  ✓ Cached {}KB twiddles and {} moduli on GPU in {:.3}s",
+                 (n * num_primes * 8 * 2) / 1024,
+                 num_primes,
+                 cache_start.elapsed().as_secs_f64());
+
         println!("  [CUDA CKKS] ✓ GPU-only CKKS context ready!\n");
 
         Ok(Self {
@@ -132,6 +177,9 @@ impl CudaCkksContext {
             reducers,
             rescale_inv_table,
             rns_kernels_loaded: true,
+            gpu_twiddles_fwd: Some(gpu_twiddles_fwd),
+            gpu_twiddles_inv: Some(gpu_twiddles_inv),
+            gpu_moduli: Some(gpu_moduli),
         })
     }
 
@@ -688,25 +736,15 @@ impl CudaCkksContext {
             return Err(format!("Expected {} elements, got {}", n * num_primes, data.len()));
         }
 
-        // Collect all twiddles and moduli for batched operation
-        let mut all_twiddles = Vec::with_capacity(n * num_primes);
-        let mut all_moduli = Vec::with_capacity(num_primes);
+        // Use GPU-cached twiddles and moduli (uploaded once during initialization)
+        let gpu_twiddles = self.gpu_twiddles_fwd.as_ref()
+            .ok_or("GPU twiddles not initialized")?;
+        let gpu_moduli = self.gpu_moduli.as_ref()
+            .ok_or("GPU moduli not initialized")?;
 
-        for i in 0..num_primes {
-            let ntt_ctx = &self.ntt_contexts[i];
-            all_twiddles.extend_from_slice(&ntt_ctx.twiddles);
-            all_moduli.push(ntt_ctx.q);
-        }
-
-        // Copy to GPU
+        // Copy input data to GPU
         let mut gpu_data = self.device.device.htod_copy(data.to_vec())
             .map_err(|e| format!("Failed to copy data to GPU: {:?}", e))?;
-
-        let gpu_twiddles = self.device.device.htod_copy(all_twiddles)
-            .map_err(|e| format!("Failed to copy twiddles to GPU: {:?}", e))?;
-
-        let gpu_moduli = self.device.device.htod_copy(all_moduli)
-            .map_err(|e| format!("Failed to copy moduli to GPU: {:?}", e))?;
 
         // Bit-reversal permutation (TODO: batch this too in future optimization)
         // For now, we apply bit-reversal sequentially to each prime's data
@@ -751,8 +789,8 @@ impl CudaCkksContext {
             unsafe {
                 func_ntt.launch(cfg, (
                     &mut gpu_data,
-                    &gpu_twiddles,
-                    &gpu_moduli,
+                    gpu_twiddles,
+                    gpu_moduli,
                     n as u32,
                     num_primes as u32,
                     stage as u32,
@@ -786,25 +824,15 @@ impl CudaCkksContext {
             return Err(format!("Expected {} elements, got {}", n * num_primes, data.len()));
         }
 
-        // Collect all inverse twiddles and moduli
-        let mut all_twiddles_inv = Vec::with_capacity(n * num_primes);
-        let mut all_moduli = Vec::with_capacity(num_primes);
+        // Use GPU-cached inverse twiddles and moduli
+        let gpu_twiddles_inv = self.gpu_twiddles_inv.as_ref()
+            .ok_or("GPU inverse twiddles not initialized")?;
+        let gpu_moduli = self.gpu_moduli.as_ref()
+            .ok_or("GPU moduli not initialized")?;
 
-        for i in 0..num_primes {
-            let ntt_ctx = &self.ntt_contexts[i];
-            all_twiddles_inv.extend_from_slice(&ntt_ctx.twiddles_inv);
-            all_moduli.push(ntt_ctx.q);
-        }
-
-        // Copy to GPU
+        // Copy input data to GPU
         let mut gpu_data = self.device.device.htod_copy(data.to_vec())
             .map_err(|e| format!("Failed to copy data to GPU: {:?}", e))?;
-
-        let gpu_twiddles_inv = self.device.device.htod_copy(all_twiddles_inv)
-            .map_err(|e| format!("Failed to copy inverse twiddles to GPU: {:?}", e))?;
-
-        let gpu_moduli = self.device.device.htod_copy(all_moduli)
-            .map_err(|e| format!("Failed to copy moduli to GPU: {:?}", e))?;
 
         // Batched inverse NTT stages
         let mut m = n / 2;
@@ -825,8 +853,8 @@ impl CudaCkksContext {
             unsafe {
                 func_ntt_inv.launch(cfg, (
                     &mut gpu_data,
-                    &gpu_twiddles_inv,
-                    &gpu_moduli,
+                    gpu_twiddles_inv,
+                    gpu_moduli,
                     n as u32,
                     num_primes as u32,
                     stage as u32,
@@ -894,12 +922,11 @@ impl CudaCkksContext {
             return Err(format!("All arrays must have length {}", total_elements));
         }
 
-        // Collect moduli
-        let all_moduli: Vec<u64> = (0..num_primes)
-            .map(|i| self.ntt_contexts[i].q)
-            .collect();
+        // Use GPU-cached moduli
+        let gpu_moduli = self.gpu_moduli.as_ref()
+            .ok_or("GPU moduli not initialized")?;
 
-        // Copy to GPU
+        // Copy input arrays to GPU
         let gpu_a = self.device.device.htod_copy(a.to_vec())
             .map_err(|e| format!("Failed to copy a to GPU: {:?}", e))?;
 
@@ -908,9 +935,6 @@ impl CudaCkksContext {
 
         let mut gpu_c = self.device.device.alloc_zeros::<u64>(total_elements)
             .map_err(|e| format!("Failed to allocate result: {:?}", e))?;
-
-        let gpu_moduli = self.device.device.htod_copy(all_moduli)
-            .map_err(|e| format!("Failed to copy moduli to GPU: {:?}", e))?;
 
         // Launch batched pointwise multiply kernel
         let func = self.ntt_contexts[0].device.device.get_func("ntt_module", "ntt_pointwise_multiply_batched")
@@ -931,7 +955,7 @@ impl CudaCkksContext {
                 &gpu_a,
                 &gpu_b,
                 &mut gpu_c,
-                &gpu_moduli,
+                gpu_moduli,
                 n as u32,
                 num_primes as u32,
             ))
