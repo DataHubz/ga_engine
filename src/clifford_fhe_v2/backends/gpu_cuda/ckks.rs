@@ -718,33 +718,23 @@ impl CudaCkksContext {
         let n = ct1.n;
         let num_active_primes = ct1.level + 1;
 
-        // Step 1: Upload ciphertexts in strided format, then convert to flat ON GPU
-        // This eliminates 8 PCIe transfers (4 × strided_to_flat that each did upload+download)
+        // Step 1: Convert strided→flat on CPU (extracts only active primes) AND upload to GPU
+        // Note: strided_to_flat() does important work - it extracts only num_active_primes
+        // from the full ct.c0/c1 arrays that contain ct.num_primes (30 total)
+        let c0_flat = self.strided_to_flat(&ct1.c0, n, ct1.num_primes, num_active_primes);
+        let c1_flat = self.strided_to_flat(&ct1.c1, n, ct1.num_primes, num_active_primes);
+        let d0_flat = self.strided_to_flat(&ct2.c0, n, ct2.num_primes, num_active_primes);
+        let d1_flat = self.strided_to_flat(&ct2.c1, n, ct2.num_primes, num_active_primes);
 
-        let gpu_c0_strided = self.device.device.htod_copy(ct1.c0.clone())
-            .map_err(|e| format!("Failed to upload c0 strided: {:?}", e))?;
-        let gpu_c1_strided = self.device.device.htod_copy(ct1.c1.clone())
-            .map_err(|e| format!("Failed to upload c1 strided: {:?}", e))?;
-        let gpu_d0_strided = self.device.device.htod_copy(ct2.c0.clone())
-            .map_err(|e| format!("Failed to upload d0 strided: {:?}", e))?;
-        let gpu_d1_strided = self.device.device.htod_copy(ct2.c1.clone())
-            .map_err(|e| format!("Failed to upload d1 strided: {:?}", e))?;
-
-        // Convert strided→flat on GPU
-        let total_elements = n * num_active_primes;
-        let mut gpu_c0 = self.device.device.alloc_zeros::<u64>(total_elements)
-            .map_err(|e| format!("Failed to allocate c0 flat: {:?}", e))?;
-        let mut gpu_c1 = self.device.device.alloc_zeros::<u64>(total_elements)
-            .map_err(|e| format!("Failed to allocate c1 flat: {:?}", e))?;
-        let mut gpu_d0 = self.device.device.alloc_zeros::<u64>(total_elements)
-            .map_err(|e| format!("Failed to allocate d0 flat: {:?}", e))?;
-        let mut gpu_d1 = self.device.device.alloc_zeros::<u64>(total_elements)
-            .map_err(|e| format!("Failed to allocate d1 flat: {:?}", e))?;
-
-        self.strided_to_flat_gpu(&gpu_c0_strided, &mut gpu_c0, n, ct1.num_primes, num_active_primes)?;
-        self.strided_to_flat_gpu(&gpu_c1_strided, &mut gpu_c1, n, ct1.num_primes, num_active_primes)?;
-        self.strided_to_flat_gpu(&gpu_d0_strided, &mut gpu_d0, n, ct2.num_primes, num_active_primes)?;
-        self.strided_to_flat_gpu(&gpu_d1_strided, &mut gpu_d1, n, ct2.num_primes, num_active_primes)?;
+        // Upload to GPU ONCE (only active primes, not all 30!)
+        let mut gpu_c0 = self.device.device.htod_copy(c0_flat)
+            .map_err(|e| format!("Failed to upload c0: {:?}", e))?;
+        let mut gpu_c1 = self.device.device.htod_copy(c1_flat)
+            .map_err(|e| format!("Failed to upload c1: {:?}", e))?;
+        let mut gpu_d0 = self.device.device.htod_copy(d0_flat)
+            .map_err(|e| format!("Failed to upload d0: {:?}", e))?;
+        let mut gpu_d1 = self.device.device.htod_copy(d1_flat)
+            .map_err(|e| format!("Failed to upload d1: {:?}", e))?;
 
         // Step 2: Forward NTT - ALL on GPU!
         self.ntt_forward_batched_gpu(&mut gpu_c0, num_active_primes)?;
