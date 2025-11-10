@@ -133,6 +133,7 @@ impl CudaCkksContext {
             "rns_add",
             "rns_sub",
             "rns_negate",
+            "rns_pointwise_multiply_strided",
         ]).map_err(|e| format!("Failed to load RNS PTX: {:?}", e))?;
 
         // Precompute and cache twiddles on GPU for batched NTT
@@ -1512,6 +1513,78 @@ impl CudaCkksContext {
                 ),
             )
             .map_err(|e| format!("Failed to launch rns_sub kernel: {:?}", e))?;
+        }
+
+        // Copy result back to CPU
+        let result = self.device.device.dtoh_sync_copy(&c_gpu)
+            .map_err(|e| format!("Failed to copy result from GPU: {:?}", e))?;
+
+        Ok(result)
+    }
+
+    /// Pointwise multiply two polynomials in strided RNS layout on GPU
+    ///
+    /// Uses GPU rns_pointwise_multiply_strided kernel with 128-bit modular multiplication.
+    pub fn pointwise_multiply_polynomials_gpu_strided(
+        &self,
+        a: &[u64],
+        b: &[u64],
+        stride: usize,
+        num_primes: usize,
+    ) -> Result<Vec<u64>, String> {
+        use cudarc::driver::LaunchAsync;
+
+        let n = self.params.n;
+
+        if a.len() < n * stride || b.len() < n * stride {
+            return Err(format!(
+                "Input polynomials too small: expected {}, got {} and {}",
+                n * stride, a.len(), b.len()
+            ));
+        }
+
+        // Copy inputs to GPU
+        let a_gpu = self.device.device.htod_copy(a[..n * stride].to_vec())
+            .map_err(|e| format!("Failed to copy a to GPU: {:?}", e))?;
+        let b_gpu = self.device.device.htod_copy(b[..n * stride].to_vec())
+            .map_err(|e| format!("Failed to copy b to GPU: {:?}", e))?;
+
+        // Allocate output on GPU
+        let c_gpu = self.device.device.alloc_zeros::<u64>(n * stride)
+            .map_err(|e| format!("Failed to allocate GPU memory: {:?}", e))?;
+
+        // Use cached moduli
+        let moduli_gpu = self.gpu_moduli.as_ref()
+            .ok_or("GPU moduli not cached")?;
+
+        // Get kernel function
+        let func = self.device.device.get_func("rns_module", "rns_pointwise_multiply_strided")
+            .ok_or_else(|| "rns_pointwise_multiply_strided kernel not found".to_string())?;
+
+        // Launch configuration (one thread per coefficient)
+        let threads_per_block = 256;
+        let num_blocks = (n + threads_per_block - 1) / threads_per_block;
+        let cfg = cudarc::driver::LaunchConfig {
+            grid_dim: (num_blocks as u32, 1, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        // Launch kernel
+        unsafe {
+            func.launch(
+                cfg,
+                (
+                    &a_gpu,
+                    &b_gpu,
+                    &c_gpu,
+                    moduli_gpu,
+                    n as u32,
+                    stride as u32,
+                    num_primes as u32,
+                ),
+            )
+            .map_err(|e| format!("Failed to launch rns_pointwise_multiply_strided kernel: {:?}", e))?;
         }
 
         // Copy result back to CPU

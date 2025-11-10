@@ -184,6 +184,8 @@ fn cuda_encode_diagonal(
 }
 
 /// Multiply ciphertext by plaintext using CUDA
+///
+/// Uses V2's GPU-accelerated pointwise_multiply_polynomials_gpu_strided() for parallel computation.
 pub fn cuda_multiply_plain(
     ct: &CudaCiphertext,
     pt: &[u64],
@@ -193,26 +195,10 @@ pub fn cuda_multiply_plain(
     let n = ct.n;
     let num_primes = ct.num_primes;
 
-    // Multiply c0 by plaintext (coefficient-wise in RNS)
-    let mut c0_result = vec![0u64; n * num_primes];
-    let mut c1_result = vec![0u64; n * num_primes];
-
-    // For each coefficient and prime
-    for coeff_idx in 0..n {
-        for prime_idx in 0..num_primes {
-            let idx = coeff_idx * num_primes + prime_idx;
-            let q = ckks_ctx.params().moduli[prime_idx];
-
-            // c0_result = c0 * pt (mod q)
-            let c0_val = ct.c0[idx];
-            let pt_val = pt[idx];
-            c0_result[idx] = ((c0_val as u128 * pt_val as u128) % q as u128) as u64;
-
-            // c1_result = c1 * pt (mod q)
-            let c1_val = ct.c1[idx];
-            c1_result[idx] = ((c1_val as u128 * pt_val as u128) % q as u128) as u64;
-        }
-    }
+    // Use V2's GPU pointwise multiplication with strided layout
+    // Both ct and pt are in strided layout: [coeff_idx * num_primes + prime_idx]
+    let c0_result = ckks_ctx.pointwise_multiply_polynomials_gpu_strided(&ct.c0, pt, num_primes, num_primes)?;
+    let c1_result = ckks_ctx.pointwise_multiply_polynomials_gpu_strided(&ct.c1, pt, num_primes, num_primes)?;
 
     // After multiplication, we need to rescale to maintain scale
     // The scale becomes: ct.scale * scale(pt)

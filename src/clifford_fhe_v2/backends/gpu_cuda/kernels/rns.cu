@@ -261,6 +261,37 @@ __global__ void rns_negate(
 }
 
 /**
+ * Pointwise multiplication in RNS representation (strided layout)
+ * c[i] = (a[i] * b[i]) % q for each RNS limb
+ *
+ * Uses 128-bit modular multiplication to avoid overflow.
+ * Input/output layout: poly[coeff_idx * stride + prime_idx] (strided)
+ */
+__global__ void rns_pointwise_multiply_strided(
+    const unsigned long long* a,         // First polynomial (strided)
+    const unsigned long long* b,         // Second polynomial (strided)
+    unsigned long long* c,               // Result (strided)
+    const unsigned long long* moduli,    // RNS moduli
+    unsigned int n,                      // Ring dimension
+    unsigned int stride,                 // Stride (usually num_primes_total)
+    unsigned int num_primes              // Number of active primes
+) {
+    unsigned int coeff_idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+    if (coeff_idx >= n) return;
+
+    // Process all primes for this coefficient
+    for (unsigned int prime_idx = 0; prime_idx < num_primes; prime_idx++) {
+        unsigned int idx = coeff_idx * stride + prime_idx;
+        unsigned long long q = moduli[prime_idx];
+
+        // Multiply with 128-bit safety
+        unsigned long long result = mul_mod_128(a[idx], b[idx], q);
+        c[idx] = result;
+    }
+}
+
+/**
  * Layout conversion: Strided → Flat
  *
  * Strided: poly_in[coeff_idx * stride + prime_idx]
