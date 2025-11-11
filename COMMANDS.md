@@ -40,6 +40,7 @@ cargo build --release --features v2,v2-gpu-cuda,v3
 - [V2: Metal GPU](#v2-metal-gpu)
 - [V2: CUDA GPU](#v2-cuda-gpu)
 - [V3: Bootstrapping](#v3-bootstrapping)
+- [V4: Packed Multivector Layout](#v4-packed-multivector-layout)
 - [Lattice Reduction](#lattice-reduction)
 - [All Versions Combined](#all-versions-combined)
 - [Quick Reference Tables](#quick-reference-tables)
@@ -318,6 +319,61 @@ cargo run --release --features v2,v3 --example test_v3_parameters
 # - Use case: Quick validation and testing
 ```
 
+## V4: Packed Multivector Layout
+
+V4 implements **slot-interleaved packing** to compress 8 component ciphertexts into a single packed ciphertext, achieving 8× memory reduction. The geometric product operates on packed multivectors using Metal GPU acceleration.
+
+### Build V4
+```bash
+# V4 with Metal GPU backend
+cargo build --release --features v4,v2-gpu-metal
+```
+
+### Test V4
+```bash
+# Run V4 integration tests (matches V2 style)
+cargo test --test test_geometric_operations_v4 --features v4,v2-gpu-metal --no-default-features -- --nocapture
+
+# Clean output (filter debug messages)
+cargo test --test test_geometric_operations_v4 --features v4,v2-gpu-metal --no-default-features -- --nocapture 2>&1 | \
+  grep -v "ROTATION DEBUG|GALOIS DEBUG|NTT|Metal Device|Metal Max"
+
+# Run individual tests
+cargo test --test test_geometric_operations_v4 test_geometric_product_simple \
+  --features v4,v2-gpu-metal --no-default-features -- --nocapture
+
+cargo test --test test_geometric_operations_v4 test_packing_unpacking \
+  --features v4,v2-gpu-metal --no-default-features -- --nocapture
+
+cargo test --test test_geometric_operations_v4 test_geometric_product_exists \
+  --features v4,v2-gpu-metal --no-default-features -- --nocapture
+```
+
+### Performance V4
+```bash
+# Geometric product performance (Apple M3 Max GPU):
+# - Operation time: ~5.0s per packed geometric product
+# - Memory usage: 8× reduction vs V3 (1 packed ciphertext instead of 8)
+# - GPU utilization: ~95%+
+# - Test: (1 + 2e₁) ⊗ (3e₂) = 3e₂ + 6e₁₂
+
+# What's tested:
+# 1. test_geometric_product_simple: Full geometric product on Metal GPU
+# 2. test_packing_unpacking: Pack 8→1, unpack 1→8, verify values
+# 3. test_geometric_product_exists: Quick smoke test
+```
+
+### V4 File Location
+```bash
+# Integration test file
+tests/test_geometric_operations_v4.rs
+
+# Matches V2/V3 style:
+# - tests/test_geometric_operations_v2.rs ← V2
+# - tests/test_geometric_operations_v3.rs ← V3 (if exists)
+# - tests/test_geometric_operations_v4.rs ← V4 (NEW!)
+```
+
 ## Lattice Reduction
 
 Lattice reduction is used for **security analysis** (cryptanalysis) of the FHE scheme. It is **not required** for FHE operations.
@@ -399,12 +455,13 @@ cargo doc --open --features v2,v3
 |---------|-------------|--------------|
 | `v1` | V1 baseline reference implementation | V1 examples and tests |
 | `v2` | V2 CPU-optimized backend | V2 CPU examples and tests |
-| `v2-gpu-metal` | V2/V3 Metal GPU backend (Apple Silicon) | Metal GPU operations (V2/V3) |
+| `v2-gpu-metal` | V2/V3/V4 Metal GPU backend (Apple Silicon) | Metal GPU operations (V2/V3/V4) |
 | `v2-gpu-cuda` | V2/V3 CUDA GPU backend (NVIDIA) | CUDA GPU operations (V2/V3) |
 | `v3` | V3 bootstrapping (requires `v2`) | V3 bootstrap examples and tests |
+| `v4` | V4 packed multivector layout (requires `v2`) | V4 packing and geometric product |
 | `lattice-reduction` | Lattice reduction for security analysis | Lattice reduction tests |
 
-**Important**: `v3` automatically includes `v2` as a dependency. GPU backends (`v2-gpu-metal`, `v2-gpu-cuda`) work with both V2 and V3.
+**Important**: `v3` and `v4` automatically include `v2` as a dependency. GPU backends (`v2-gpu-metal`, `v2-gpu-cuda`) work with V2, V3, and V4.
 
 ### Test Counts
 
@@ -413,20 +470,22 @@ cargo doc --open --features v2,v3
 | V1 Unit Tests | 31 | `cargo test --lib --features v1` |
 | V2 Unit Tests | 127 | `cargo test --lib --features v2` |
 | V3 Unit Tests | 52 | `cargo test --lib --features v2,v3 clifford_fhe_v3` |
+| V4 Integration Tests | 3 | `cargo test --test test_geometric_operations_v4 --features v4,v2-gpu-metal` |
 | Lattice Reduction | ~60 | `cargo test --lib lattice_reduction` |
-| **Total (no lattice)** | **~210** | `cargo test --lib --features v1,v2,v3` |
-| **Total (with lattice)** | **~270** | `cargo test --lib --features v1,v2,v3,lattice-reduction` |
+| **Total (no lattice)** | **~213** | `cargo test --lib --features v1,v2,v3` |
+| **Total (with lattice)** | **~273** | `cargo test --lib --features v1,v2,v3,lattice-reduction` |
 
 ### Performance Summary
 
 #### Geometric Product (Single Operation)
 
-| Backend | Hardware | Time | Speedup vs V1 |
-|---------|----------|------|---------------|
-| V1 CPU | Apple M3 Max (14-core) | 11.42s | 1× |
-| V2 CPU | Apple M3 Max (14-core) | 0.30s | 38× |
-| V2 Metal | Apple M3 Max GPU | 33ms | 346× |
-| V2 CUDA | NVIDIA RTX 5090 | 5.7ms | 2,002× |
+| Backend | Hardware | Time | Speedup vs V1 | Memory |
+|---------|----------|------|---------------|--------|
+| V1 CPU | Apple M3 Max (14-core) | 11.42s | 1× | 8 ciphertexts |
+| V2 CPU | Apple M3 Max (14-core) | 0.30s | 38× | 8 ciphertexts |
+| V2 Metal | Apple M3 Max GPU | 33ms | 346× | 8 ciphertexts |
+| V2 CUDA | NVIDIA RTX 5090 | 5.7ms | 2,002× | 8 ciphertexts |
+| **V4 Metal** | **Apple M3 Max GPU** | **~5.0s** | **2.3×** | **1 packed** (8× reduction) |
 
 #### Bootstrap (Full Operation)
 

@@ -56,6 +56,9 @@ pub mod rotation;
 pub mod rotation_keys;
 
 #[cfg(feature = "v2-gpu-metal")]
+pub mod hoisting;
+
+#[cfg(feature = "v2-gpu-metal")]
 pub mod bootstrap;
 
 #[cfg(feature = "v2-gpu-metal")]

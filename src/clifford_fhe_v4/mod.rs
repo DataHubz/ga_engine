@@ -20,6 +20,9 @@ pub mod packed_multivector;
 pub mod packing;
 
 #[cfg(feature = "v4")]
+pub mod packing_butterfly;
+
+#[cfg(feature = "v4")]
 pub mod params;
 
 #[cfg(feature = "v4")]
@@ -37,6 +40,9 @@ pub use packed_multivector::PackedMultivector;
 
 #[cfg(feature = "v4")]
 pub use packing::{pack_multivector, unpack_multivector};
+
+#[cfg(feature = "v4")]
+pub use packing_butterfly::{pack_multivector_butterfly, unpack_multivector_butterfly};
 
 #[cfg(feature = "v4")]
 pub use params::PackedParams;

@@ -403,6 +403,45 @@ kernel void ntt_pointwise_multiply(
     }
 }
 
+/// Batched pointwise multiplication for multiple RNS primes
+///
+/// Processes multiple RNS primes in parallel using 2D dispatch.
+/// Input data is in flat interleaved layout: [coeff0_p0, coeff0_p1, coeff0_p2, coeff1_p0, ...]
+///
+/// @param a Input polynomial A in flat layout (size: n * num_primes)
+/// @param b Input polynomial B in flat layout (size: n * num_primes)
+/// @param c Output polynomial C in flat layout (size: n * num_primes)
+/// @param moduli Array of RNS moduli [q0, q1, q2, ...]
+/// @param moduli_inv Array of Montgomery parameters [q0_inv, q1_inv, q2_inv, ...]
+/// @param n Polynomial degree
+/// @param num_primes Number of RNS primes
+/// @param gid 2D thread position: (coeff_idx, prime_idx)
+kernel void ntt_pointwise_multiply_batched(
+    device const ulong* a [[buffer(0)]],
+    device const ulong* b [[buffer(1)]],
+    device ulong* c [[buffer(2)]],
+    constant ulong* moduli [[buffer(3)]],
+    constant ulong* moduli_inv [[buffer(4)]],
+    constant uint& n [[buffer(5)]],
+    constant uint& num_primes [[buffer(6)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint coeff_idx = gid.x;
+    uint prime_idx = gid.y;
+
+    if (coeff_idx < n && prime_idx < num_primes) {
+        // Calculate flat index: coeff_idx * num_primes + prime_idx
+        uint flat_idx = coeff_idx * num_primes + prime_idx;
+
+        // Get modulus and Montgomery parameter for this prime
+        ulong q = moduli[prime_idx];
+        ulong q_inv = moduli_inv[prime_idx];
+
+        // Montgomery multiplication: (a*R) * (b*R) * R^{-1} = (a*b)*R
+        c[flat_idx] = mont_mul(a[flat_idx], b[flat_idx], q, q_inv);
+    }
+}
+
 /// Pointwise modular addition
 kernel void ntt_pointwise_add(
     device const ulong* a [[buffer(0)]],
@@ -428,6 +467,62 @@ kernel void ntt_pointwise_sub(
 ) {
     if (gid < n) {
         c[gid] = sub_mod(a[gid], b[gid], q);
+    }
+}
+
+/// Batched in-place modular subtraction for multi-prime flat layout
+///
+/// Performs: a[i] -= b[i] (mod q) for all i
+/// Works with flat interleaved RNS layout: [coeff0_p0, coeff0_p1, ..., coeff1_p0, ...]
+///
+/// @param a Input/output array (modified in-place)
+/// @param b Array to subtract
+/// @param moduli Array of RNS moduli [q0, q1, q2, ...]
+/// @param n Polynomial degree
+/// @param num_primes Number of RNS primes
+kernel void ntt_pointwise_sub_inplace_batched(
+    device ulong* a [[buffer(0)]],
+    device const ulong* b [[buffer(1)]],
+    constant ulong* moduli [[buffer(2)]],
+    constant uint& n [[buffer(3)]],
+    constant uint& num_primes [[buffer(4)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint coeff_idx = gid.x;
+    uint prime_idx = gid.y;
+
+    if (coeff_idx < n && prime_idx < num_primes) {
+        uint flat_idx = coeff_idx * num_primes + prime_idx;
+        ulong q = moduli[prime_idx];
+        a[flat_idx] = sub_mod(a[flat_idx], b[flat_idx], q);
+    }
+}
+
+/// Batched in-place modular addition for multi-prime flat layout
+///
+/// Performs: a[i] += b[i] (mod q) for all i
+/// Works with flat interleaved RNS layout: [coeff0_p0, coeff0_p1, ..., coeff1_p0, ...]
+///
+/// @param a Input/output array (modified in-place)
+/// @param b Array to add
+/// @param moduli Array of RNS moduli [q0, q1, q2, ...]
+/// @param n Polynomial degree
+/// @param num_primes Number of RNS primes
+kernel void ntt_pointwise_add_inplace_batched(
+    device ulong* a [[buffer(0)]],
+    device const ulong* b [[buffer(1)]],
+    constant ulong* moduli [[buffer(2)]],
+    constant uint& n [[buffer(3)]],
+    constant uint& num_primes [[buffer(4)]],
+    uint2 gid [[thread_position_in_grid]]
+) {
+    uint coeff_idx = gid.x;
+    uint prime_idx = gid.y;
+
+    if (coeff_idx < n && prime_idx < num_primes) {
+        uint flat_idx = coeff_idx * num_primes + prime_idx;
+        ulong q = moduli[prime_idx];
+        a[flat_idx] = add_mod(a[flat_idx], b[flat_idx], q);
     }
 }
 
@@ -466,10 +561,11 @@ kernel void ntt_apply_twist(
     constant ulong* psi_powers [[buffer(1)]],
     constant uint& n [[buffer(2)]],
     constant ulong& q [[buffer(3)]],
+    constant ulong& q_inv [[buffer(4)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid < n) {
-        coeffs[gid] = mul_mod(coeffs[gid], psi_powers[gid], q);
+        coeffs[gid] = mul_mod(coeffs[gid], psi_powers[gid], q, q_inv);
     }
 }
 
@@ -487,10 +583,68 @@ kernel void ntt_apply_inverse_twist(
     constant ulong* psi_inv_powers [[buffer(1)]],
     constant uint& n [[buffer(2)]],
     constant ulong& q [[buffer(3)]],
+    constant ulong& q_inv [[buffer(4)]],
     uint gid [[thread_position_in_grid]]
 ) {
     if (gid < n) {
-        coeffs[gid] = mul_mod(coeffs[gid], psi_inv_powers[gid], q);
+        coeffs[gid] = mul_mod(coeffs[gid], psi_inv_powers[gid], q, q_inv);
+    }
+}
+
+/// Fused iNTT Final Scale + Inverse Twist
+///
+/// Combines the final bit-reversal/scaling step of iNTT with inverse twist application.
+/// This saves one GPU kernel dispatch and intermediate buffer readback.
+///
+/// Performs:
+/// 1. Bit-reverse permutation
+/// 2. Scale by n^{-1} (Montgomery: multiply by n_inv_mont)
+/// 3. Apply inverse twist: multiply by ψ^{-i}
+///
+/// @param coeffs Input/output coefficients (in Montgomery domain)
+/// @param psi_inv_powers Powers of psi^(-1) in Montgomery: [1, ψ^{-1}, ψ^{-2}, ..., ψ^{-(n-1)}]
+/// @param n Polynomial degree
+/// @param q Modulus
+/// @param n_inv_mont Modular inverse of n in Montgomery domain (n^{-1} * R mod q)
+/// @param q_inv Montgomery parameter: -q^{-1} mod 2^64
+kernel void ntt_inverse_final_scale_and_untwist(
+    device ulong* coeffs [[buffer(0)]],
+    constant ulong* psi_inv_powers [[buffer(1)]],
+    constant uint& n [[buffer(2)]],
+    constant ulong& q [[buffer(3)]],
+    constant ulong& n_inv_mont [[buffer(4)]],
+    constant ulong& q_inv [[buffer(5)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    if (gid < n) {
+        // Compute bit-reversed index
+        uint reversed = 0;
+        uint k = gid;
+        uint logn = 31 - clz(n);
+
+        for (uint i = 0; i < logn; i++) {
+            reversed = (reversed << 1) | (k & 1);
+            k >>= 1;
+        }
+
+        // Perform bit-reversal swap (only for gid <= reversed to avoid double-swap)
+        if (gid <= reversed) {
+            // Read values
+            ulong val_gid = coeffs[gid];
+            ulong val_rev = coeffs[reversed];
+
+            // Scale by n^{-1} (Montgomery multiply)
+            val_gid = mont_mul(val_gid, n_inv_mont, q, q_inv);
+            val_rev = mont_mul(val_rev, n_inv_mont, q, q_inv);
+
+            // Apply inverse twist: multiply by ψ^{-i}
+            val_gid = mont_mul(val_gid, psi_inv_powers[gid], q, q_inv);
+            val_rev = mont_mul(val_rev, psi_inv_powers[reversed], q, q_inv);
+
+            // Write back (swapped)
+            coeffs[gid] = val_rev;
+            coeffs[reversed] = val_gid;
+        }
     }
 }
 

@@ -54,7 +54,7 @@ impl Cl3StructureConstants {
 
 /// Metal-accelerated geometric product computer
 pub struct MetalGeometricProduct {
-    device: MetalDevice,
+    device: Arc<MetalDevice>,
     pub(crate) ntt_ctx: MetalNttContext,
     constants: Cl3StructureConstants,
 }
@@ -62,8 +62,20 @@ pub struct MetalGeometricProduct {
 impl MetalGeometricProduct {
     /// Create new Metal geometric product computer
     pub fn new(n: usize, q: u64, root: u64) -> Result<Self, String> {
-        let device = MetalDevice::new()?;
-        let ntt_ctx = MetalNttContext::new(n, q, root)?;
+        let device = Arc::new(MetalDevice::new()?);
+        let ntt_ctx = MetalNttContext::new_with_device(device.clone(), n, q, root)?;
+        let constants = Cl3StructureConstants::new();
+
+        Ok(Self {
+            device,
+            ntt_ctx,
+            constants,
+        })
+    }
+
+    /// Create Metal geometric product computer with existing device (avoids reinitialization)
+    pub fn new_with_device(device: Arc<MetalDevice>, n: usize, q: u64, root: u64) -> Result<Self, String> {
+        let ntt_ctx = MetalNttContext::new_with_device(device.clone(), n, q, root)?;
         let constants = Cl3StructureConstants::new();
 
         Ok(Self {

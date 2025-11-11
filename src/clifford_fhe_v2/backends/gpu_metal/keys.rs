@@ -70,31 +70,18 @@ impl MetalKeyContext {
     pub fn new(params: CliffordFHEParams) -> Result<Self, String> {
         let moduli = params.moduli.clone();
 
-        println!("  [Metal GPU] Creating Metal device...");
-        let start = std::time::Instant::now();
         let device = Arc::new(MetalDevice::new()?);
-        println!("  [Metal GPU] Device initialized in {:.3}s", start.elapsed().as_secs_f64());
-
-        println!("  [Metal GPU] Creating NTT contexts for {} primes...", moduli.len());
-        let start = std::time::Instant::now();
-
         // Create Metal NTT contexts (twiddle factors computed on CPU, but operations run on GPU)
         // We share the Metal device across all contexts to avoid creating multiple GPU connections
         let mut ntt_contexts = Vec::with_capacity(moduli.len());
-        for (i, &q) in moduli.iter().enumerate() {
-            eprintln!("  [Metal GPU] Creating NTT context {}/{} for q={}...", i+1, moduli.len(), q);
+        for (_i, &q) in moduli.iter().enumerate() {
             // Find primitive 2n-th root of unity (psi)
-            eprintln!("    Finding primitive root...");
             let psi = Self::find_primitive_2n_root(params.n, q)?;
-            eprintln!("    Found psi={}, creating Metal NTT context...", psi);
             // Pass psi (not omega) to MetalNttContext for twisted NTT
             // The NTT context will compute omega = psi^2 internally
             let metal_ntt = MetalNttContext::new_with_device(device.clone(), params.n, q, psi)?;
-            eprintln!("    Metal NTT context {} created!", i+1);
             ntt_contexts.push(metal_ntt);
         }
-
-        println!("  [Metal GPU] NTT contexts created in {:.2}s", start.elapsed().as_secs_f64());
 
         // Barrett reducers (CPU-side, cheap)
         let reducers: Vec<BarrettReducer> = moduli
@@ -132,37 +119,24 @@ impl MetalKeyContext {
         let level = self.params.max_level();
         let moduli: Vec<u64> = self.params.moduli[..=level].to_vec();
 
-        println!("  [Metal GPU] Starting keygen for N={}, {} primes", n, moduli.len());
-
         // 1. Sample ternary secret key s ∈ {-1, 0, 1}^N (CPU)
-        let start = Instant::now();
         let sk = self.sample_ternary_secret_key(&moduli);
-        println!("  [Metal GPU] Step 1/5: Secret key sampled in {:.2}s", start.elapsed().as_secs_f64());
 
         // 2. Sample uniform random polynomial a (CPU)
-        let start = Instant::now();
         let a = self.sample_uniform(&moduli);
-        println!("  [Metal GPU] Step 2/5: Uniform poly sampled in {:.2}s", start.elapsed().as_secs_f64());
 
         // 3. Sample error polynomial e from Gaussian distribution (CPU)
-        let start = Instant::now();
         let e = self.sample_error(&moduli);
-        println!("  [Metal GPU] Step 3/5: Error poly sampled in {:.2}s", start.elapsed().as_secs_f64());
 
         // 4. Compute b = -a*s + e using GPU NTT multiplication
-        let start = Instant::now();
         let a_times_s = self.multiply_polynomials_gpu(&a, &sk.coeffs, &moduli)?;
         let neg_a_times_s = self.negate_polynomial(&a_times_s, &moduli);
         let b = self.add_polynomials(&neg_a_times_s, &e);
-        println!("  [Metal GPU] Step 4/5: Public key computed in {:.2}s", start.elapsed().as_secs_f64());
 
         let pk = PublicKey::new(a, b, level);
 
         // 5. Generate evaluation key for relinearization (uses GPU)
-        println!("  [Metal GPU] Step 5/5: Starting evaluation key generation...");
-        let start = Instant::now();
         let evk = self.generate_evaluation_key_gpu(&sk, &moduli)?;
-        println!("  [Metal GPU] Step 5/5: Evaluation key generated in {:.2}s", start.elapsed().as_secs_f64());
 
         Ok((pk, sk, evk))
     }
@@ -442,7 +416,6 @@ impl MetalKeyContext {
                 && Self::pow_mod(psi, two_n, q) == 1
                 && Self::pow_mod(psi, n as u64, q) != 1
             {
-                eprintln!("    Found psi={} from generator g={}", psi, g);
                 return Ok(psi);
             }
         }
@@ -454,7 +427,6 @@ impl MetalKeyContext {
                 && Self::pow_mod(psi, two_n, q) == 1
                 && Self::pow_mod(psi, n as u64, q) != 1
             {
-                eprintln!("    Found psi={} from generator g={}", psi, g);
                 return Ok(psi);
             }
         }

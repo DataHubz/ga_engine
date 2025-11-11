@@ -6,6 +6,78 @@ use super::packed_multivector::PackedMultivector;
 use super::mult_table::PackedMultTable;
 use super::packing::extract_component;
 
+/// Find a primitive 2N-th root of unity modulo q
+///
+/// For NTT-friendly primes q ≡ 1 (mod 2N), computes ψ = g^((q-1)/(2N))
+/// where g is a generator of the multiplicative group mod q.
+fn find_primitive_root_for_ntt(n: usize, q: u64) -> Result<u64, String> {
+    // Verify q ≡ 1 (mod 2n)
+    let two_n = (2 * n) as u64;
+    if (q - 1) % two_n != 0 {
+        return Err(format!(
+            "q = {} is not NTT-friendly for n = {} (q-1 must be divisible by 2n)",
+            q, n
+        ));
+    }
+
+    // Try small candidates that are often generators
+    for candidate in [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31] {
+        if is_primitive_root_candidate(candidate, n, q) {
+            let exponent = (q - 1) / two_n;
+            return Ok(mod_pow(candidate, exponent, q));
+        }
+    }
+
+    // Extended search
+    for candidate in 32..1000u64 {
+        if is_primitive_root_candidate(candidate, n, q) {
+            let exponent = (q - 1) / two_n;
+            return Ok(mod_pow(candidate, exponent, q));
+        }
+    }
+
+    Err(format!("Failed to find primitive root for q = {}, n = {}", q, n))
+}
+
+/// Check if g is suitable for generating primitive 2n-th root
+fn is_primitive_root_candidate(g: u64, n: usize, q: u64) -> bool {
+    // Check if g is a quadratic non-residue
+    if mod_pow(g, (q - 1) / 2, q) == 1 {
+        return false;
+    }
+
+    // Check if g^((q-1)/(2n)) generates the subgroup of order 2n
+    let psi = mod_pow(g, (q - 1) / (2 * n as u64), q);
+
+    // psi^n should equal -1 mod q
+    let psi_n = mod_pow(psi, n as u64, q);
+    if psi_n != q - 1 {
+        return false;
+    }
+
+    // psi^(2n) should equal 1 mod q
+    let psi_2n = mod_pow(psi, 2 * n as u64, q);
+    psi_2n == 1
+}
+
+/// Modular exponentiation: base^exp mod m
+fn mod_pow(base: u64, exp: u64, m: u64) -> u64 {
+    let mut result = 1u128;
+    let mut base = base as u128;
+    let mut exp = exp;
+    let m = m as u128;
+
+    while exp > 0 {
+        if exp & 1 == 1 {
+            result = (result * base) % m;
+        }
+        base = (base * base) % m;
+        exp >>= 1;
+    }
+
+    result as u64
+}
+
 #[cfg(feature = "v2-gpu-cuda")]
 use crate::clifford_fhe_v2::backends::gpu_cuda::{
     ckks::{CudaCiphertext as Ciphertext, CudaCkksContext, CudaPlaintext as Plaintext},
@@ -25,76 +97,143 @@ use crate::clifford_fhe_v2::backends::cpu_optimized::{
 
 /// Geometric product: a ⊗ b (packed version)
 ///
-/// Uses multiplication table to compute which components contribute to each output.
-///
 /// Algorithm:
-/// 1. For each output component (0-7):
-///    - Extract relevant input components from a and b
-///    - Multiply extracted components
-///    - Apply coefficient (+1 or -1)
-///    - Rotate to target position
-///    - Sum all contributions
-/// 2. Pack results back into single ciphertext
+/// 1. Unpack both packed multivectors into 8 component ciphertexts each
+/// 2. Convert RNS ciphertexts to per-prime format for Metal geometric product
+/// 3. For each prime modulus:
+///    - Use Metal geometric product to compute all 8 output components
+/// 4. Reconstruct RNS ciphertexts from per-prime results
+/// 5. Pack the 8 result components back into a single PackedMultivector
 ///
-/// NOTE: Currently requires ciphertext multiplication which is not yet implemented
-/// in Metal GPU backend. This is a placeholder that shows the algorithm structure.
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+/// This leverages the existing Metal GPU geometric product which handles
+/// all 64 ciphertext multiplications in parallel on the GPU.
+#[cfg(feature = "v2-gpu-metal")]
 pub fn geometric_product_packed(
     a: &PackedMultivector,
     b: &PackedMultivector,
     rot_keys: &RotationKeys,
     ckks_ctx: &CudaCkksContext,
 ) -> Result<PackedMultivector, String> {
+    use super::packing::unpack_multivector;
+    use crate::clifford_fhe_v2::backends::gpu_metal::geometric::MetalGeometricProduct;
+
     if !a.is_compatible(b) {
         return Err("Incompatible packed multivectors".to_string());
     }
 
-    let mult_table = PackedMultTable::new();
-    let mut output_components: Vec<Ciphertext> = Vec::with_capacity(8);
+    // Step 1: Unpack into component ciphertexts (RNS format) using butterfly transform
+    use super::packing_butterfly::unpack_multivector_butterfly;
+    let a_components = unpack_multivector_butterfly(a, rot_keys, ckks_ctx)?;
+    let b_components = unpack_multivector_butterfly(b, rot_keys, ckks_ctx)?;
 
-    // For each output component
-    for output_comp in 0..8 {
-        let terms = mult_table.get_terms(output_comp);
+    let n = a.n;
+    let level = a.level;
 
-        // Initialize accumulator for this component
-        let mut component_result: Option<Ciphertext> = None;
+    // Use the actual number of primes from the unpacked ciphertexts, not from PackedMultivector
+    let num_primes = a_components[0].num_primes;
+    let moduli = &ckks_ctx.params.moduli[..num_primes];
 
-        for term in terms {
-            // Step 1: Extract component a_comp from multivector a
-            let a_extracted = extract_component(a, term.a_comp, rot_keys, ckks_ctx)?;
 
-            // Step 2: Extract component b_comp from multivector b
-            let b_extracted = extract_component(b, term.b_comp, rot_keys, ckks_ctx)?;
+    // Step 2: Reuse the existing Metal device from ckks_ctx instead of creating new ones
+    // This is MUCH faster - avoids reinitializing Metal device for each prime
+    let device = ckks_ctx.device().clone();
 
-            // Step 3: Multiply the extracted components
-            // TODO: This requires ciphertext multiplication (not yet in Metal)
-            // For now, we'll use multiply_plain as a placeholder showing the structure
-            // In reality, this should be: a_extracted.multiply(&b_extracted, evk, ckks_ctx)?
+    // Step 2: Process each prime modulus separately
+    let mut result_components_rns: Vec<Ciphertext> = vec![];
 
-            // Placeholder: multiply by constant to show structure
-            // let term_result = a_extracted.multiply(&b_extracted, evk, ckks_ctx)?;
-            return Err("geometric_product_packed requires ciphertext multiplication (not yet implemented in Metal backend)".to_string());
+    for prime_idx in 0..num_primes {
+        let q = moduli[prime_idx];
 
-            // Step 4: Apply coefficient (+1 or -1)
-            // if term.coeff < 0 {
-            //     let neg_one = ckks_ctx.encode(&vec![-1.0])?;
-            //     term_result = term_result.multiply_plain(&neg_one, ckks_ctx)?;
-            // }
+        // Find primitive root for this prime
+        let root = find_primitive_root_for_ntt(n, q)?;
 
-            // Step 5: Accumulate
-            // component_result = match component_result {
-            //     None => Some(term_result),
-            //     Some(acc) => Some(acc.add(&term_result, ckks_ctx)?),
-            // };
+        // Create Metal geometric product computer using existing device
+        let metal_gp = MetalGeometricProduct::new_with_device(device.clone(), n, q, root)?;
+
+        // Step 2a: Extract polynomials for this prime from RNS representation
+        let mut a_prime: [[Vec<u64>; 2]; 8] = Default::default();
+        let mut b_prime: [[Vec<u64>; 2]; 8] = Default::default();
+
+        for comp in 0..8 {
+            // Extract c0 and c1 for this prime
+            a_prime[comp][0] = extract_prime_from_flat(&a_components[comp].c0, n, num_primes, prime_idx);
+            a_prime[comp][1] = extract_prime_from_flat(&a_components[comp].c1, n, num_primes, prime_idx);
+            b_prime[comp][0] = extract_prime_from_flat(&b_components[comp].c0, n, num_primes, prime_idx);
+            b_prime[comp][1] = extract_prime_from_flat(&b_components[comp].c1, n, num_primes, prime_idx);
         }
 
-        // output_components.push(component_result.unwrap());
+        // Step 2b: Compute geometric product for this prime
+        let result_prime = metal_gp.geometric_product(&a_prime, &b_prime)?;
+
+        // Step 2c: Store results for later RNS reconstruction
+        if prime_idx == 0 {
+            // Initialize result vectors
+            // Use num_primes-1 as level since level is 0-indexed
+            let result_level = num_primes - 1;
+            for comp in 0..8 {
+                result_components_rns.push(Ciphertext {
+                    c0: vec![0u64; n * num_primes],
+                    c1: vec![0u64; n * num_primes],
+                    n,
+                    num_primes,
+                    level: result_level,
+                    scale: a.scale * b.scale,
+                });
+            }
+        }
+
+        // Insert this prime's results into the flat RNS layout
+        for comp in 0..8 {
+            insert_prime_into_flat(&result_prime[comp][0], &mut result_components_rns[comp].c0, n, num_primes, prime_idx);
+            insert_prime_into_flat(&result_prime[comp][1], &mut result_components_rns[comp].c1, n, num_primes, prime_idx);
+        }
     }
 
-    // Step 6: Pack the 8 output components back into a single packed ciphertext
-    // This would use pack_multivector() once we have all components
+    // Step 3: Pack result components back into a single PackedMultivector
+    let result_array: [Ciphertext; 8] = [
+        result_components_rns[0].clone(),
+        result_components_rns[1].clone(),
+        result_components_rns[2].clone(),
+        result_components_rns[3].clone(),
+        result_components_rns[4].clone(),
+        result_components_rns[5].clone(),
+        result_components_rns[6].clone(),
+        result_components_rns[7].clone(),
+    ];
 
-    Err("geometric_product_packed not yet fully implemented - requires ciphertext multiplication".to_string())
+    // Step 3: Pack result components back using butterfly transform
+    use super::packing_butterfly::pack_multivector_butterfly;
+    pack_multivector_butterfly(&result_array, a.batch_size, rot_keys, ckks_ctx)
+}
+
+/// Extract coefficients for a single prime from flat RNS layout
+///
+/// Flat layout: [c0_q0, c0_q1, ..., c1_q0, c1_q1, ..., c_{n-1}_q0, c_{n-1}_q1, ...]
+/// Returns: [c0, c1, ..., c_{n-1}] for the specified prime
+fn extract_prime_from_flat(flat: &[u64], n: usize, num_primes: usize, prime_idx: usize) -> Vec<u64> {
+    let mut result = vec![0u64; n];
+    for i in 0..n {
+        result[i] = flat[i * num_primes + prime_idx];
+    }
+    result
+}
+
+/// Insert coefficients for a single prime into flat RNS layout
+fn insert_prime_into_flat(prime_coeffs: &[u64], flat: &mut [u64], n: usize, num_primes: usize, prime_idx: usize) {
+    for i in 0..n {
+        flat[i * num_primes + prime_idx] = prime_coeffs[i];
+    }
+}
+
+/// CUDA version (placeholder - will implement similarly to Metal)
+#[cfg(all(feature = "v2-gpu-cuda", not(feature = "v2-gpu-metal")))]
+pub fn geometric_product_packed(
+    _a: &PackedMultivector,
+    _b: &PackedMultivector,
+    _rot_keys: &RotationKeys,
+    _ckks_ctx: &CudaCkksContext,
+) -> Result<PackedMultivector, String> {
+    Err("geometric_product_packed not yet implemented for CUDA backend".to_string())
 }
 
 /// CPU version (placeholder)
@@ -110,8 +249,8 @@ pub fn geometric_product_packed(
 /// Wedge product: a ∧ b = (ab - ba) / 2 (packed version)
 ///
 /// Antisymmetric part of the geometric product.
-/// Requires geometric product to be implemented.
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+/// Computes the exterior product which gives the oriented area/volume element.
+#[cfg(feature = "v2-gpu-metal")]
 pub fn wedge_product_packed(
     a: &PackedMultivector,
     b: &PackedMultivector,
@@ -123,22 +262,39 @@ pub fn wedge_product_packed(
     }
 
     // wedge(a,b) = (geometric(a,b) - geometric(b,a)) / 2
-    // let ab = geometric_product_packed(a, b, rot_keys, ckks_ctx)?;
-    // let ba = geometric_product_packed(b, a, rot_keys, ckks_ctx)?;
-    // let diff = subtract_packed(&ab, &ba, ckks_ctx)?;
+    let ab = geometric_product_packed(a, b, rot_keys, ckks_ctx)?;
+    let ba = geometric_product_packed(b, a, rot_keys, ckks_ctx)?;
+    let diff = subtract_packed(&ab, &ba, ckks_ctx)?;
 
     // Multiply by 0.5
-    // let half = ckks_ctx.encode(&vec![0.5])?;
-    // let result_ct = diff.ct.multiply_plain(&half, ckks_ctx)?;
+    let half = ckks_ctx.encode(&vec![0.5])?;
+    let result_ct = diff.ct.multiply_plain(&half, ckks_ctx)?;
 
-    Err("wedge_product_packed requires geometric_product_packed (not yet implemented)".to_string())
+    Ok(PackedMultivector::new(
+        result_ct,
+        a.batch_size,
+        a.n,
+        a.num_primes,
+        a.level,
+        diff.scale * 0.5,
+    ))
+}
+
+#[cfg(all(feature = "v2-gpu-cuda", not(feature = "v2-gpu-metal")))]
+pub fn wedge_product_packed(
+    _a: &PackedMultivector,
+    _b: &PackedMultivector,
+    _rot_keys: &RotationKeys,
+    _ckks_ctx: &CudaCkksContext,
+) -> Result<PackedMultivector, String> {
+    Err("wedge_product_packed not yet implemented for CUDA backend".to_string())
 }
 
 /// Inner product: a · b = (ab + ba) / 2 (packed version)
 ///
 /// Symmetric part of the geometric product.
-/// Requires geometric product to be implemented.
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+/// Generalizes the scalar/dot product to all grades.
+#[cfg(feature = "v2-gpu-metal")]
 pub fn inner_product_packed(
     a: &PackedMultivector,
     b: &PackedMultivector,
@@ -150,15 +306,32 @@ pub fn inner_product_packed(
     }
 
     // inner(a,b) = (geometric(a,b) + geometric(b,a)) / 2
-    // let ab = geometric_product_packed(a, b, rot_keys, ckks_ctx)?;
-    // let ba = geometric_product_packed(b, a, rot_keys, ckks_ctx)?;
-    // let sum = add_packed(&ab, &ba, ckks_ctx)?;
+    let ab = geometric_product_packed(a, b, rot_keys, ckks_ctx)?;
+    let ba = geometric_product_packed(b, a, rot_keys, ckks_ctx)?;
+    let sum = add_packed(&ab, &ba, ckks_ctx)?;
 
     // Multiply by 0.5
-    // let half = ckks_ctx.encode(&vec![0.5])?;
-    // let result_ct = sum.ct.multiply_plain(&half, ckks_ctx)?;
+    let half = ckks_ctx.encode(&vec![0.5])?;
+    let result_ct = sum.ct.multiply_plain(&half, ckks_ctx)?;
 
-    Err("inner_product_packed requires geometric_product_packed (not yet implemented)".to_string())
+    Ok(PackedMultivector::new(
+        result_ct,
+        a.batch_size,
+        a.n,
+        a.num_primes,
+        a.level,
+        sum.scale * 0.5,
+    ))
+}
+
+#[cfg(all(feature = "v2-gpu-cuda", not(feature = "v2-gpu-metal")))]
+pub fn inner_product_packed(
+    _a: &PackedMultivector,
+    _b: &PackedMultivector,
+    _rot_keys: &RotationKeys,
+    _ckks_ctx: &CudaCkksContext,
+) -> Result<PackedMultivector, String> {
+    Err("inner_product_packed not yet implemented for CUDA backend".to_string())
 }
 
 /// CPU versions (placeholder)

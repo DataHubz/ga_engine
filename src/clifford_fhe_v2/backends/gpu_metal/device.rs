@@ -22,9 +22,6 @@ impl MetalDevice {
         let device = Device::system_default()
             .ok_or_else(|| "No Metal device found. Metal requires Apple Silicon (M1/M2/M3).".to_string())?;
 
-        println!("Metal Device: {}", device.name());
-        println!("Metal Max Threads Per Threadgroup: {}", device.max_threads_per_threadgroup().width);
-
         // Create command queue for GPU work submission
         let command_queue = device.new_command_queue();
 
@@ -47,8 +44,6 @@ impl MetalDevice {
         let rns_fixed_source = include_str!("shaders/rns_fixed.metal");
         let rns_fixed_library = device.new_library_with_source(rns_fixed_source, &CompileOptions::new())
             .map_err(|e| format!("Failed to compile fixed RNS Metal shaders: {:?}", e))?;
-
-        println!("✅ All Metal shader libraries loaded successfully");
 
         Ok(MetalDevice {
             device,

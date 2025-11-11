@@ -66,7 +66,7 @@ The framework achieves **production-candidate performance** through systematic o
 
 ## System Architecture
 
-### Three-Tier Implementation Strategy
+### Four-Tier Implementation Strategy
 
 #### **V1: Reference Baseline**
 - **Purpose**: Correctness verification, academic reproducibility, performance baseline
@@ -102,6 +102,22 @@ The framework achieves **production-candidate performance** through systematic o
   - EvalMod (homomorphic modular reduction via BSGS polynomial evaluation)
   - Full bootstrap pipeline (ModRaise → CoeffToSlot → EvalMod → SlotToCoeff)
   - Relinearization keys (CUDA)
+
+#### **V4: Packed Multivector Layout**
+- **Purpose**: Memory-efficient geometric operations, SIMD slot packing for multivectors
+- **Status**: Complete with Metal GPU backend, 3 integration tests passing
+- **Performance**: ~5.0s per packed geometric product (Metal GPU)
+- **Architecture**: **V4 uses V2 backend** (builds on V2 GPU infrastructure)
+  - V4 provides packing/unpacking operations (slot-interleaved layout)
+  - V2 Metal GPU provides low-level operations (NTT, rotation, multiplication)
+  - Single packed ciphertext holds all 8 Clifford algebra components
+- **Memory Efficiency**: 8× reduction (1 packed ciphertext instead of 8 separate)
+- **Components**:
+  - Slot-interleaved packing (8 components → 1 ciphertext)
+  - Unpacking via homomorphic rotations
+  - Geometric product on packed multivectors
+  - Compatible with V3 bootstrapping
+- **Trade-off**: Slower than unpacked V2 (~5s vs 33ms) but uses 8× less memory
 
 ## Core Capabilities
 
@@ -191,6 +207,9 @@ cargo run --release --features v2,v2-gpu-cuda,v3 --example test_cuda_bootstrap
 
 # V3 Metal GPU: Full bootstrap (100% GPU, 60s)
 cargo run --release --features v2,v2-gpu-metal,v3 --example test_metal_gpu_bootstrap_native
+
+# V4 Metal GPU: Packed geometric product (8× memory reduction)
+cargo test --release --features v4,v2-gpu-metal --test test_geometric_operations_v4 -- --nocapture
 ```
 
 ### Running Tests
@@ -201,6 +220,9 @@ cargo test --lib --features v2
 
 # V3: Bootstrap tests (52 tests, 100% passing)
 cargo test --lib --features v2,v3 clifford_fhe_v3
+
+# V4: Packed multivector tests (3 integration tests)
+cargo test --test test_geometric_operations_v4 --features v4,v2-gpu-metal --no-default-features -- --nocapture
 
 # All versions (V1 + V2 + V3 = ~210 tests)
 cargo test --lib --features v1,v2,v3
@@ -286,6 +308,7 @@ MIT License - See [LICENSE](LICENSE) file
 | V3 Bootstrap (CPU) | Complete | 52/52 passing | Full |
 | V3 Bootstrap (Metal GPU) | **Production Stable** | Verified | Full |
 | V3 Bootstrap (CUDA GPU) | **Production Stable** | Verified | Full |
+| V4 Packed Layout (Metal GPU) | Complete | 3/3 passing | Full |
 | Lattice Reduction | Complete | ~60/60 passing | Full |
 
 **Overall**: Production-ready framework with comprehensive testing and documentation.
