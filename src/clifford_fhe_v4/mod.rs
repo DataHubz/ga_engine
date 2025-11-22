@@ -38,10 +38,10 @@ pub mod bootstrapping;
 #[cfg(feature = "v4")]
 pub use packed_multivector::PackedMultivector;
 
-#[cfg(feature = "v4")]
+#[cfg(all(feature = "v4", any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal")))]
 pub use packing::{pack_multivector, unpack_multivector};
 
-#[cfg(feature = "v4")]
+#[cfg(all(feature = "v4", any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal")))]
 pub use packing_butterfly::{pack_multivector_butterfly, unpack_multivector_butterfly};
 
 #[cfg(feature = "v4")]

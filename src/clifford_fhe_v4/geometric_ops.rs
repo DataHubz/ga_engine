@@ -4,6 +4,8 @@
 
 use super::packed_multivector::PackedMultivector;
 use super::mult_table::PackedMultTable;
+
+#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
 use super::packing::extract_component;
 
 /// Find a primitive 2N-th root of unity modulo q

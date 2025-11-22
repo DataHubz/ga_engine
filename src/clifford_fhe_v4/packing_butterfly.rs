@@ -276,6 +276,7 @@ pub fn unpack_multivector_butterfly(
 }
 
 /// Create a plaintext mask for scaling (1/factor at every 8th slot)
+#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
 fn create_scale_mask(
     batch_size: usize,
     n: usize,
