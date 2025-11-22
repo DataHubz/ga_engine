@@ -48,7 +48,7 @@ pub struct CudaCkksContext {
 }
 
 /// CUDA ciphertext representation
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CudaCiphertext {
     /// First polynomial (c0) in strided RNS layout: c0[coeff_idx * num_primes + prime_idx]
     pub c0: Vec<u64>,

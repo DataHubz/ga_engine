@@ -29,7 +29,9 @@ use crate::clifford_fhe_v2::backends::cpu_optimized::{
 ///
 /// After rotating the packed ciphertext to align the desired component to position 0,
 /// multiplying by this mask zeros out all other components.
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+///
+/// NOTE: This is Metal/CPU only. CUDA uses packing_cuda.rs instead.
+#[cfg(all(feature = "v2-gpu-metal", not(feature = "v2-gpu-cuda")))]
 fn create_extraction_mask(
     batch_size: usize,
     n: usize,
@@ -46,7 +48,7 @@ fn create_extraction_mask(
         }
     }
 
-    // Encode the mask into a plaintext
+    // Encode the mask into a plaintext (Metal 1-param signature)
     ckks_ctx.encode(&mask_values)
 }
 
@@ -65,7 +67,9 @@ fn create_extraction_mask(
 ///
 /// This interleaves the components by rotating each one into its designated position
 /// within each 8-slot group.
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+///
+/// NOTE: Metal/CPU only. CUDA uses pack_multivector_cuda from packing_cuda.rs.
+#[cfg(all(feature = "v2-gpu-metal", not(feature = "v2-gpu-cuda")))]
 pub fn pack_multivector(
     components: &[Ciphertext; 8],
     batch_size: usize,
@@ -147,7 +151,8 @@ pub fn pack_multivector(
 ///    - Rotate packed_ct right by i positions (to align component i to position 0)
 ///    - Multiply by mask to extract only that component
 ///
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+/// NOTE: Metal/CPU only. CUDA uses unpack_multivector_cuda from packing_cuda.rs.
+#[cfg(all(feature = "v2-gpu-metal", not(feature = "v2-gpu-cuda")))]
 pub fn unpack_multivector(
     packed: &PackedMultivector,
     rot_keys: &RotationKeys,
@@ -203,7 +208,8 @@ pub fn unpack_multivector(
 /// 1. Rotate packed_ct right by component_idx positions to align to position 0
 /// 2. Multiply by extraction mask to zero out all other components
 ///
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+/// NOTE: Metal/CPU only. CUDA uses extract_component_cuda from packing_cuda.rs.
+#[cfg(all(feature = "v2-gpu-metal", not(feature = "v2-gpu-cuda")))]
 pub fn extract_component(
     packed: &PackedMultivector,
     component_idx: usize,

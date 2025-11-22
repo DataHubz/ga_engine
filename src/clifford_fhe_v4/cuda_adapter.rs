@@ -53,25 +53,9 @@ impl CudaCiphertextExt for CudaCiphertext {
         rot_ctx: &CudaRotationContext,
         ckks_ctx: &CudaCkksContext,
     ) -> Result<CudaCiphertext, String> {
-        // Get Galois element for this rotation
-        let n = self.n;
-        let galois_elt = compute_galois_element(steps, n)?;
-
-        // Rotate c0 and c1 using Galois automorphism
-        let num_primes_at_level = self.level + 1;
-
-        let rotated_c0 = rot_ctx.rotate_gpu(&self.c0, steps, num_primes_at_level)?;
-        let rotated_c1 = rot_ctx.rotate_gpu(&self.c1, steps, num_primes_at_level)?;
-
-        // Apply key switching using rotation keys
-        rot_keys.apply_key_switch_gpu(
-            &rotated_c0,
-            &rotated_c1,
-            galois_elt,
-            self.level,
-            self.scale,
-            ckks_ctx.ntt_contexts(),
-        )
+        // DEPRECATED: This file is redundant with ciphertext_ops.rs
+        // Just delegate to the extension method
+        self.rotate_by_steps(steps, rot_keys, ckks_ctx)
     }
 
     fn multiply_plain(
@@ -93,13 +77,15 @@ impl CudaCiphertextExt for CudaCiphertext {
         let c0_mult = ckks_ctx.pointwise_multiply_polynomials_gpu_strided(
             &self.c0,
             &plaintext.poly,
-            num_primes_at_level,
+            self.num_primes,
+            self.num_primes,
         )?;
 
         let c1_mult = ckks_ctx.pointwise_multiply_polynomials_gpu_strided(
             &self.c1,
             &plaintext.poly,
-            num_primes_at_level,
+            self.num_primes,
+            self.num_primes,
         )?;
 
         // Rescale to maintain scale

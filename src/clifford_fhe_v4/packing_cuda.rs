@@ -125,27 +125,11 @@ fn rotate_cuda(
     ct: &CudaCiphertext,
     steps: i32,
     rot_keys: &CudaRotationKeys,
-    rot_ctx: &CudaRotationContext,
+    _rot_ctx: &CudaRotationContext,
     ckks_ctx: &CudaCkksContext,
 ) -> Result<CudaCiphertext, String> {
-    // Compute Galois element
-    let n = ct.n;
-    let galois_elt = compute_galois_element(steps, n)?;
-
-    // Rotate polynomials
-    let num_primes_at_level = ct.level + 1;
-    let rotated_c0 = rot_ctx.rotate_gpu(&ct.c0, steps, num_primes_at_level)?;
-    let rotated_c1 = rot_ctx.rotate_gpu(&ct.c1, steps, num_primes_at_level)?;
-
-    // Apply key switching
-    rot_keys.apply_key_switch_gpu(
-        &rotated_c0,
-        &rotated_c1,
-        galois_elt,
-        ct.level,
-        ct.scale,
-        ckks_ctx.ntt_contexts(),
-    )
+    // Delegate to extension method
+    ct.rotate_by_steps(steps, rot_keys, ckks_ctx)
 }
 
 /// Helper: Multiply ciphertext by plaintext
@@ -154,18 +138,28 @@ fn multiply_plain_cuda(
     pt: &CudaPlaintext,
     ckks_ctx: &CudaCkksContext,
 ) -> Result<CudaCiphertext, String> {
-    let num_primes_at_level = ct.level + 1;
+    // Delegate to extension method
+    ct.multiply_plain(pt, ckks_ctx)
+}
 
+// Old implementation (kept for reference, remove later):
+fn _multiply_plain_cuda_old(
+    ct: &CudaCiphertext,
+    pt: &CudaPlaintext,
+    ckks_ctx: &CudaCkksContext,
+) -> Result<CudaCiphertext, String> {
     let c0_mult = ckks_ctx.pointwise_multiply_polynomials_gpu_strided(
         &ct.c0,
         &pt.poly,
-        num_primes_at_level,
+        ct.num_primes,
+        ct.num_primes,
     )?;
 
     let c1_mult = ckks_ctx.pointwise_multiply_polynomials_gpu_strided(
         &ct.c1,
         &pt.poly,
-        num_primes_at_level,
+        ct.num_primes,
+        ct.num_primes,
     )?;
 
     let c0_rescaled = ckks_ctx.exact_rescale_gpu_strided(&c0_mult, ct.level)?;
