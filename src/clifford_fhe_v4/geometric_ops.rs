@@ -5,8 +5,9 @@
 use super::packed_multivector::PackedMultivector;
 use super::mult_table::PackedMultTable;
 
+// Import extract_component from parent module (which re-exports the right version)
 #[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
-use super::packing::extract_component;
+use super::extract_component;
 
 /// Find a primitive 2N-th root of unity modulo q
 ///
@@ -116,7 +117,7 @@ pub fn geometric_product_packed(
     rot_keys: &RotationKeys,
     ckks_ctx: &CudaCkksContext,
 ) -> Result<PackedMultivector, String> {
-    use super::packing::unpack_multivector;
+    use super::unpack_multivector;
     use crate::clifford_fhe_v2::backends::gpu_metal::geometric::MetalGeometricProduct;
 
     if !a.is_compatible(b) {
@@ -398,7 +399,11 @@ pub fn subtract_packed(
     }
 
     // Negate b by multiplying by -1
+    #[cfg(feature = "v2-gpu-cuda")]
+    let neg_one = ckks_ctx.encode(&vec![-1.0], ckks_ctx.params().scale, a.level)?;
+    #[cfg(all(feature = "v2-gpu-metal", not(feature = "v2-gpu-cuda")))]
     let neg_one = ckks_ctx.encode(&vec![-1.0])?;
+
     let neg_b = b.ct.multiply_plain(&neg_one, ckks_ctx)?;
 
     // Add a + (-b)

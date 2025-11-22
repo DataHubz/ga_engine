@@ -34,13 +34,25 @@ pub mod geometric_ops;
 #[cfg(feature = "v4")]
 pub mod bootstrapping;
 
+#[cfg(all(feature = "v4", feature = "v2-gpu-cuda"))]
+pub mod cuda_adapter;
+
+#[cfg(all(feature = "v4", feature = "v2-gpu-cuda"))]
+pub mod packing_cuda;
+
 // Re-export main types
 #[cfg(feature = "v4")]
 pub use packed_multivector::PackedMultivector;
 
-#[cfg(all(feature = "v4", any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal")))]
-pub use packing::{pack_multivector, unpack_multivector};
+// Export CUDA-specific packing functions when CUDA is enabled
+#[cfg(all(feature = "v4", feature = "v2-gpu-cuda"))]
+pub use packing_cuda::{pack_multivector_cuda as pack_multivector, unpack_multivector_cuda as unpack_multivector, extract_component_cuda as extract_component};
 
+// Export Metal/CPU packing functions when CUDA is NOT enabled
+#[cfg(all(feature = "v4", feature = "v2-gpu-metal", not(feature = "v2-gpu-cuda")))]
+pub use packing::{pack_multivector, unpack_multivector, extract_component};
+
+// Butterfly packing - keep shared for now (may need CUDA version later)
 #[cfg(all(feature = "v4", any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal")))]
 pub use packing_butterfly::{pack_multivector_butterfly, unpack_multivector_butterfly};
 

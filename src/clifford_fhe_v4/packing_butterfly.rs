@@ -185,8 +185,8 @@ pub fn unpack_multivector_butterfly(
 ) -> Result<[Ciphertext; 8], String> {
     let packed_ct = &packed.ct;
 
-    // Get moduli for negation operations
-    let moduli = &ckks_ctx.params.moduli[..=packed.level];
+    // Get moduli for negation operations (use params() accessor)
+    let moduli = &ckks_ctx.params().moduli[..=packed.level];
 
     // Stage 1: Split into halves (rotation by 4)
     let rot4 = packed_ct.rotate_by_steps(4, rot_keys, ckks_ctx)?;
@@ -275,8 +275,8 @@ pub fn unpack_multivector_butterfly(
     ])
 }
 
-/// Create a plaintext mask for scaling (1/factor at every 8th slot)
-#[cfg(any(feature = "v2-gpu-cuda", feature = "v2-gpu-metal"))]
+/// Create a plaintext mask for scaling (1/factor at every 8th slot) - CUDA version
+#[cfg(feature = "v2-gpu-cuda")]
 fn create_scale_mask(
     batch_size: usize,
     n: usize,
@@ -287,7 +287,6 @@ fn create_scale_mask(
     let mut mask_values = vec![0.0; num_slots];
 
     // Place 1/scale_factor at positions 0, 8, 16, ... (every 8th slot)
-    // This extracts and scales the component values
     for i in 0..batch_size {
         let slot_idx = i * 8;
         if slot_idx < num_slots {
@@ -295,6 +294,33 @@ fn create_scale_mask(
         }
     }
 
+    // CUDA encode requires scale and level
+    // Use default scale from params and max level
+    let scale = ckks_ctx.params().scale;
+    let level = ckks_ctx.params().moduli.len() - 1;
+    ckks_ctx.encode(&mask_values, scale, level)
+}
+
+/// Create a plaintext mask for scaling (1/factor at every 8th slot) - Metal version
+#[cfg(all(feature = "v2-gpu-metal", not(feature = "v2-gpu-cuda")))]
+fn create_scale_mask(
+    batch_size: usize,
+    n: usize,
+    scale_factor: f64,
+    ckks_ctx: &CudaCkksContext,
+) -> Result<Plaintext, String> {
+    let num_slots = n / 2;
+    let mut mask_values = vec![0.0; num_slots];
+
+    // Place 1/scale_factor at positions 0, 8, 16, ... (every 8th slot)
+    for i in 0..batch_size {
+        let slot_idx = i * 8;
+        if slot_idx < num_slots {
+            mask_values[slot_idx] = 1.0 / scale_factor;
+        }
+    }
+
+    // Metal encode only needs values
     ckks_ctx.encode(&mask_values)
 }
 

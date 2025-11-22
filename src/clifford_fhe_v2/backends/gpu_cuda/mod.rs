@@ -36,6 +36,9 @@ pub mod rotation_keys;
 pub mod relin_keys;
 
 #[cfg(feature = "v2-gpu-cuda")]
+pub mod ciphertext_ops;
+
+#[cfg(feature = "v2-gpu-cuda")]
 pub use geometric::CudaGeometricProduct;
 
 #[cfg(feature = "v2-gpu-cuda")]
