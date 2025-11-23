@@ -86,37 +86,43 @@ fn main() -> Result<(), String> {
 
     // Create test ciphertexts
     println!("Creating test ciphertexts...");
-    let level = 1; // Use low level for quick test
+    let level = num_primes - 1; // Use full level to match params structure
     let scale = params.scale;
 
     let mut a_components = Vec::new();
     let mut b_components = Vec::new();
 
     for _i in 0..8 {
-        let mut c0 = vec![0u64; n * (level + 1)];
-        let mut c1 = vec![0u64; n * (level + 1)];
+        // CUDA uses strided layout: total size is n * num_primes
+        let mut c0 = vec![0u64; n * num_primes];
+        let mut c1 = vec![0u64; n * num_primes];
 
-        for j in 0..c0.len() {
-            let prime_idx = j % (level + 1);
-            let q = params.moduli[prime_idx];
-            c0[j] = rng.gen::<u64>() % q;
-            c1[j] = rng.gen::<u64>() % q;
+        // Fill in strided format: coeff_idx * num_primes + prime_idx
+        for coeff_idx in 0..n {
+            for prime_idx in 0..num_primes {
+                let idx = coeff_idx * num_primes + prime_idx;
+                let q = params.moduli[prime_idx];
+                c0[idx] = rng.gen::<u64>() % q;
+                c1[idx] = rng.gen::<u64>() % q;
+            }
         }
 
         let ct = ga_engine::clifford_fhe_v2::backends::gpu_cuda::ckks::CudaCiphertext {
-            c0: c0.clone(), c1: c1.clone(), n, num_primes: level + 1, level, scale,
+            c0: c0.clone(), c1: c1.clone(), n, num_primes, level, scale,
         };
         a_components.push(ct);
 
         // Create different ciphertext for b
-        for j in 0..c0.len() {
-            let prime_idx = j % (level + 1);
-            let q = params.moduli[prime_idx];
-            c0[j] = rng.gen::<u64>() % q;
-            c1[j] = rng.gen::<u64>() % q;
+        for coeff_idx in 0..n {
+            for prime_idx in 0..num_primes {
+                let idx = coeff_idx * num_primes + prime_idx;
+                let q = params.moduli[prime_idx];
+                c0[idx] = rng.gen::<u64>() % q;
+                c1[idx] = rng.gen::<u64>() % q;
+            }
         }
         let ct = ga_engine::clifford_fhe_v2::backends::gpu_cuda::ckks::CudaCiphertext {
-            c0, c1, n, num_primes: level + 1, level, scale,
+            c0, c1, n, num_primes, level, scale,
         };
         b_components.push(ct);
     }
