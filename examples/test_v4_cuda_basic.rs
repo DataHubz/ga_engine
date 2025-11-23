@@ -55,7 +55,7 @@ fn main() -> Result<(), String> {
         }
     }
 
-    // Generate rotation keys (need rotations 1-8 for packing/unpacking)
+    // Generate rotation keys (need rotations ±1 to ±8 for packing/unpacking)
     let mut rotation_keys = CudaRotationKeys::new(
         device.clone(),
         params.clone(),
@@ -64,9 +64,11 @@ fn main() -> Result<(), String> {
         16,  // base_bits = 16
     )?;
 
-    println!("  Generating rotation keys for V4 packing (rotations 1-8)");
+    println!("  Generating rotation keys for V4 packing (rotations ±1 to ±8)");
+    // Generate both positive and negative rotations
     for rot in 1..=8 {
         rotation_keys.generate_rotation_key_gpu(rot, ckks_ctx.ntt_contexts())?;
+        rotation_keys.generate_rotation_key_gpu(-rot, ckks_ctx.ntt_contexts())?;
     }
     println!("  ✅ Generated {} rotation keys\n", rotation_keys.num_keys());
 
