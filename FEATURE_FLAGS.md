@@ -11,17 +11,18 @@ Complete reference for feature flags and build configurations.
 | `v1` | V1 baseline reference implementation | None |
 | `v2` | V2 CPU-optimized backend (NTT + Rayon) | None |
 | `v3` | V3 bootstrapping (uses V2 backend) | **Requires `v2`** |
+| `v4` | V4 packed slot-interleaved layout (uses V2 backend) | **Requires `v2`** |
 
-**Important**: V3 is NOT backend-agnostic. V3 bootstrap implementations directly call V2 backend functions (CPU, Metal GPU, or CUDA GPU).
+**Important**: V3 and V4 are NOT backend-agnostic. They directly call V2 backend functions (CPU, Metal GPU, or CUDA GPU).
 
 ### GPU Backend Selection
 
 | Feature | Description | Platform | Dependencies | Works With |
 |---------|-------------|----------|--------------|------------|
-| `v2-gpu-metal` | Metal GPU acceleration | macOS (Apple Silicon) | `metal`, `objc` | V2, V3 |
-| `v2-gpu-cuda` | CUDA GPU acceleration | Linux/Windows (NVIDIA) | `cudarc` | V2, V3 |
+| `v2-gpu-metal` | Metal GPU acceleration | macOS (Apple Silicon) | `metal`, `objc` | V2, V3, V4 |
+| `v2-gpu-cuda` | CUDA GPU acceleration | Linux/Windows (NVIDIA) | `cudarc` | V2, V3, V4 |
 
-**Important**: GPU backends automatically enable `v2`. They work with both V2 operations and V3 bootstrap.
+**Important**: GPU backends automatically enable `v2`. They work with V2 operations, V3 bootstrap, and V4 packed operations.
 
 ### Other Backend Selection
 
@@ -58,10 +59,10 @@ This provides:
 cargo build --release
 
 # Or explicitly:
-cargo build --release --features v1,v2,v3,lattice-reduction
+cargo build --release --features v1,v2,v3,v4,lattice-reduction
 
 # Run all tests
-cargo test --release --features v1,v2,v3,lattice-reduction
+cargo test --release --features v1,v2,v3,v4,lattice-reduction
 ```
 
 ### V3 Bootstrap - CUDA GPU (NVIDIA)
@@ -100,6 +101,30 @@ cargo run --release --features v2,v3 --example test_v3_full_bootstrap
 # Results: ~70s bootstrap
 ```
 
+### V4 Packed Operations - Metal GPU (Apple Silicon)
+
+```bash
+# Build V4 with Metal backend (RECOMMENDED for Apple Silicon)
+cargo build --release --features v2,v2-gpu-metal,v4
+
+# Run Metal GPU packed geometric product
+cargo test --release --features v4,v2-gpu-metal --test test_geometric_operations_v4 -- --nocapture
+
+# Results: ~5.0s per packed geometric product (8× memory reduction)
+```
+
+### V4 Packed Operations - CUDA GPU (NVIDIA)
+
+```bash
+# Build V4 with CUDA backend (RECOMMENDED for NVIDIA GPUs)
+cargo build --release --features v2,v2-gpu-cuda,v4
+
+# Run CUDA GPU packed geometric product (quick test)
+cargo run --release --features v4,v2-gpu-cuda --example bench_v4_cuda_geometric_quick
+
+# Results: ~36.84s per packed geometric product (N=1024)
+```
+
 ### Cloud GPU Instances (CUDA, No Lattice)
 
 ```bash
@@ -127,6 +152,7 @@ cargo test --release --features v2 --no-default-features
 When you enable certain features, they automatically enable their dependencies:
 
 - **`v3`** → automatically enables **`v2`** (V3 uses V2 backend)
+- **`v4`** → automatically enables **`v2`** (V4 uses V2 backend)
 - **`v2-gpu-metal`** → automatically enables `v2`, `metal`, `objc`
 - **`v2-gpu-cuda`** → automatically enables `v2`, `cudarc`
 - **`v2-cpu-optimized`** → automatically enables `v2`
@@ -137,6 +163,7 @@ When you enable certain features, they automatically enable their dependencies:
 
 ```
 v3 ──requires──> v2
+v4 ──requires──> v2
 
 v2-gpu-metal ──enables──> v2
 v2-gpu-cuda  ──enables──> v2
@@ -146,6 +173,10 @@ v2-simd-batched  ──enables──> v2
 v3 + v2-gpu-metal ──> V3 bootstrap using Metal GPU
 v3 + v2-gpu-cuda  ──> V3 bootstrap using CUDA GPU
 v3 + v2           ──> V3 bootstrap using CPU
+
+v4 + v2-gpu-metal ──> V4 packed operations using Metal GPU
+v4 + v2-gpu-cuda  ──> V4 packed operations using CUDA GPU
+v4 + v2           ──> V4 packed operations using CPU
 ```
 
 ### Optional Dependencies
@@ -176,7 +207,7 @@ By making lattice reduction optional:
 
 - **Local development**: Include lattice-reduction (default behavior)
 - **Cloud GPU builds**: Omit lattice-reduction (fast builds, clean output)
-- **FHE operations**: Unaffected (V1/V2/V3 work with or without lattice-reduction)
+- **FHE operations**: Unaffected (V1/V2/V3/V4 work with or without lattice-reduction)
 
 ## Feature Combinations
 
@@ -205,9 +236,15 @@ By making lattice reduction optional:
 # V3 with CUDA GPU backend (RECOMMENDED for NVIDIA GPUs)
 --features v2,v2-gpu-cuda,v3
 
+# V4 with Metal GPU backend (RECOMMENDED for Apple Silicon)
+--features v2,v2-gpu-metal,v4
+
+# V4 with CUDA GPU backend (RECOMMENDED for NVIDIA GPUs)
+--features v2,v2-gpu-cuda,v4
+
 # All versions with GPU support
---features v1,v2,v2-gpu-metal,v3
---features v1,v2,v2-gpu-cuda,v3
+--features v1,v2,v2-gpu-metal,v3,v4
+--features v1,v2,v2-gpu-cuda,v3,v4
 ```
 
 ### Invalid Combinations
@@ -216,6 +253,9 @@ By making lattice reduction optional:
 ```bash
 # V3 without V2 (v3 requires v2)
 --features v3  # ERROR: v3 requires v2
+
+# V4 without V2 (v4 requires v2)
+--features v4  # ERROR: v4 requires v2
 
 # Multiple GPU backends (conflicts)
 --features v2-gpu-metal,v2-gpu-cuda  # ERROR: Cannot use both
@@ -235,6 +275,20 @@ When you use `--features v2,v2-gpu-metal,v3`:
 
 **Note**: The V3 files are named `cuda_*.rs` for historical reasons, but they use whichever V2 backend is enabled.
 
+### Understanding V4 + GPU Backend
+
+When you use `--features v2,v2-gpu-cuda,v4`:
+- V4 packed operations will use CUDA GPU operations from V2
+- All low-level operations (NTT, rotation, multiplication) execute on CUDA GPU
+- V4 provides packing/unpacking algorithms, V2 provides GPU execution
+- 8× memory reduction: one packed ciphertext holds all 8 Clifford components
+
+When you use `--features v2,v2-gpu-metal,v4`:
+- V4 packed operations will use Metal GPU operations from V2
+- All low-level operations (NTT, rotation, multiplication) execute on Metal GPU
+- V4 provides packing/unpacking algorithms, V2 provides GPU execution
+- Slot-interleaved layout enables efficient butterfly network packing
+
 ## Test Coverage
 
 | Component | Test Count | Command |
@@ -242,9 +296,10 @@ When you use `--features v2,v2-gpu-metal,v3`:
 | V1 Unit Tests | 31 | `cargo test --lib --features v1` |
 | V2 Unit Tests | 127 | `cargo test --lib --features v2` |
 | V3 Unit Tests | 52 | `cargo test --lib --features v2,v3 clifford_fhe_v3` |
+| V4 Integration Tests | 3 | `cargo test --test test_geometric_operations_v4 --features v4,v2-gpu-metal` |
 | Lattice Reduction | ~60 | `cargo test --lib lattice_reduction --features lattice-reduction` |
-| **Total (no lattice)** | **~210** | `cargo test --lib --features v1,v2,v3` |
-| **Total (with lattice)** | **~270** | `cargo test --lib --features v1,v2,v3,lattice-reduction` |
+| **Total (no lattice)** | **~213** | `cargo test --lib --features v1,v2,v3,v4` |
+| **Total (with lattice)** | **~273** | `cargo test --lib --features v1,v2,v3,v4,lattice-reduction` |
 
 ## Troubleshooting
 
@@ -278,6 +333,20 @@ cargo build --release --features v2,v3
 
 # Or with GPU:
 cargo build --release --features v2,v2-gpu-cuda,v3
+```
+
+### V4 examples fail with "feature v2 required"
+
+**Problem**: Tried to use V4 without enabling V2
+
+**Solution**:
+```bash
+# V4 requires V2 - use both:
+cargo build --release --features v2,v4
+
+# Or with GPU:
+cargo build --release --features v2,v2-gpu-metal,v4
+cargo build --release --features v2,v2-gpu-cuda,v4
 ```
 
 ### undefined reference to BLAS symbols
@@ -343,20 +412,25 @@ cargo build --release --features v2,v2-gpu-metal,v3
 | `--features v2,lattice-reduction` | ~5-10 minutes | netlib-src Fortran compilation (if no system BLAS) |
 | `--features v2,v2-gpu-cuda,v3` | ~3-4 minutes | CUDA kernel compilation |
 | `--features v2,v2-gpu-metal,v3` | ~2-3 minutes | Metal shader compilation |
+| `--features v2,v2-gpu-cuda,v4` | ~3-4 minutes | CUDA kernel compilation |
+| `--features v2,v2-gpu-metal,v4` | ~2-3 minutes | Metal shader compilation |
 | Incremental builds | ~10-30 seconds | Cached dependencies |
 
 ### Runtime Performance
 
-**No impact**: The `lattice-reduction` feature only affects what modules are compiled, not runtime performance of FHE operations. V2/V3 FHE operations have identical performance with or without lattice-reduction.
+**No impact**: The `lattice-reduction` feature only affects what modules are compiled, not runtime performance of FHE operations. V2/V3/V4 FHE operations have identical performance with or without lattice-reduction.
 
 **GPU backend impact**:
 - V3 CUDA GPU bootstrap: ~11.95s (5.86× faster than CPU)
 - V3 Metal GPU bootstrap: ~60s (1.17× faster than CPU)
+- V4 CUDA GPU packed operations: ~36.84s per geometric product (N=1024)
+- V4 Metal GPU packed operations: ~5.0s per geometric product
 - See [BENCHMARKS.md](BENCHMARKS.md) for detailed performance measurements
 
 ## See Also
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture (explains V3 uses V2 backend)
+- [ARCHITECTURE.md](ARCHITECTURE.md) - System architecture (explains V3 and V4 use V2 backend)
+- [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) - Complete V1→V2→V3→V4 technical history
 - [COMMANDS.md](COMMANDS.md) - Complete command reference
 - [BENCHMARKS.md](BENCHMARKS.md) - Performance measurements
 - [INSTALLATION.md](INSTALLATION.md) - Setup guide and system requirements
