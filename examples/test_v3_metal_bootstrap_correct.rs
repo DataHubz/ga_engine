@@ -38,7 +38,9 @@ fn main() -> Result<(), String> {
 
     // Generate rotation keys (V3)
     println!("Step 3: Generating rotation keys (V3 implementation)");
-    let rotation_steps: Vec<i32> = (0..10).map(|i| 1 << i).collect();  // 1, 2, 4, 8, ..., 512
+    // For N=8192, we need rotations up to N/4 = 2048
+    // Generate: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048
+    let rotation_steps: Vec<i32> = (0..12).map(|i| 1 << i).collect();  // 1, 2, 4, ..., 2048
     let rotation_steps_neg: Vec<i32> = rotation_steps.iter().map(|&x| -x).collect();
     let mut all_rotations = rotation_steps.clone();
     all_rotations.extend(rotation_steps_neg);
