@@ -32,10 +32,15 @@
 pub mod rotor_nd;
 pub mod lll_baseline;
 pub mod ga_lll;
+pub mod ga_lll_rotors;  // CRYPTO 2026: Hypothesis 1 - Hybrid rotor GSO (v1)
+pub mod ga_lll_pure;    // CRYPTO 2026: Hypothesis 1 - Pure rotor GSO (v2) - FAILED
+pub mod e8_lattice;     // CRYPTO 2026: E8 orbit enumeration (symmetry test)
+pub mod ga_reflection;  // CRYPTO 2026: GA reflections for E8
 pub mod stable_gso;
 pub mod enumeration;
 // pub mod bkz_baseline;  // Removed: old buggy implementation, replaced by bkz_stable
 pub mod bkz_stable;
+pub mod bkz_rotor;    // CRYPTO 2026: Rotor-tracked BKZ (15× GSO update speedup)
 // pub mod bkz_ga;
 pub mod svp_challenge;
 // pub mod verification;

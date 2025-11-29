@@ -116,3 +116,6 @@ harness = false
 [[bench]]
 name = "metal_vs_cpu_benchmark"
 harness = false
+[[bench]]
+name = "lattice_battle"
+harness = false

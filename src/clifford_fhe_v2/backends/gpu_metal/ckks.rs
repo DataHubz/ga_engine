@@ -2263,10 +2263,143 @@ impl MetalCiphertext {
         Ok(t)
     }
 
-    /// Multiply two ciphertexts (GPU) - NOT IMPLEMENTED YET
-    pub fn multiply(&self, _other: &Self, _ctx: &MetalCkksContext) -> Result<Self, String> {
-        // TODO: Implement GPU multiplication (requires relinearization)
-        Err("GPU ciphertext multiplication not yet implemented".to_string())
+    /// Multiply two ciphertexts with relinearization (GPU)
+    ///
+    /// Computes ct1 × ct2 using tensor product followed by relinearization:
+    /// 1. Tensor product: (c0, c1) × (d0, d1) = (c0×d0, c0×d1 + c1×d0, c1×d1)
+    /// 2. Relinearization: (ct0, ct1, ct2) → (ct'0, ct'1) using relin keys
+    /// 3. Rescale: Drop one prime from modulus chain
+    ///
+    /// # Arguments
+    /// * `other` - Second ciphertext to multiply
+    /// * `relin_keys` - Relinearization keys for degree reduction
+    /// * `ctx` - Metal CKKS context
+    ///
+    /// # Returns
+    /// Result ciphertext at level-1 with scale²
+    pub fn multiply(
+        &self,
+        other: &Self,
+        relin_keys: &super::relin_keys::MetalRelinKeys,
+        ctx: &MetalCkksContext,
+    ) -> Result<Self, String> {
+        // Validate inputs
+        if self.level != other.level {
+            return Err(format!(
+                "Cannot multiply ciphertexts at different levels: {} vs {}",
+                self.level, other.level
+            ));
+        }
+
+        if self.level == 0 {
+            return Err("Cannot multiply ciphertext at level 0 (no room for rescale)".to_string());
+        }
+
+        let n = self.n;
+        let level = self.level;
+        let num_primes = level + 1;
+
+        // Step 1: Tensor product using NTT multiplication
+        // ct_mult = (c0×d0, c0×d1 + c1×d0, c1×d1)
+
+        // c0 × d0
+        let ct0_ct0 = ctx.multiply_polys_flat_ntt_negacyclic(
+            &self.c0,
+            &other.c0,
+            &ctx.params.moduli[..num_primes],
+        )?;
+
+        // c0 × d1
+        let ct0_ct1 = ctx.multiply_polys_flat_ntt_negacyclic(
+            &self.c0,
+            &other.c1,
+            &ctx.params.moduli[..num_primes],
+        )?;
+
+        // c1 × d0
+        let ct1_ct0 = ctx.multiply_polys_flat_ntt_negacyclic(
+            &self.c1,
+            &other.c0,
+            &ctx.params.moduli[..num_primes],
+        )?;
+
+        // c1 × d1 (this is c2 component)
+        let c2 = ctx.multiply_polys_flat_ntt_negacyclic(
+            &self.c1,
+            &other.c1,
+            &ctx.params.moduli[..num_primes],
+        )?;
+
+        // ct0_ct1 + ct1_ct0 (middle term)
+        let mut ct1_temp = vec![0u64; n * num_primes];
+        for i in 0..(n * num_primes) {
+            let q = ctx.params.moduli[i % num_primes];
+            ct1_temp[i] = ((ct0_ct1[i] as u128 + ct1_ct0[i] as u128) % q as u128) as u64;
+        }
+
+        // Result before relinearization: (ct0_ct0, ct1_temp, c2)
+        let mut result_c0 = ct0_ct0;
+        let mut result_c1 = ct1_temp;
+
+        // Step 2: Relinearization - convert c2·s² into (Δc0, Δc1)
+        // using key switching with gadget decomposition
+
+        let (base_w, num_digits) = relin_keys.gadget_params();
+        let (rlk0_ntt, rlk1_ntt) = relin_keys.get_ntt_keys(level)?;
+
+        // Gadget decompose c2 into digits
+        let c2_digits = Self::gadget_decompose_flat(
+            &c2,
+            base_w,
+            &ctx.params.moduli[..num_primes],
+            n,
+        )?;
+
+        // Apply key switching: sum over digits of d_i × rlk
+        for digit_idx in 0..num_digits {
+            let d_i = &c2_digits[digit_idx];
+
+            // Δc0 += d_i × rlk0[digit_idx]
+            let term0 = ctx.multiply_polys_flat_ntt_negacyclic(
+                d_i,
+                &rlk0_ntt[digit_idx],
+                &ctx.params.moduli[..num_primes],
+            )?;
+
+            for i in 0..(n * num_primes) {
+                let q = ctx.params.moduli[i % num_primes];
+                result_c0[i] = ((result_c0[i] as u128 + term0[i] as u128) % q as u128) as u64;
+            }
+
+            // Δc1 += d_i × rlk1[digit_idx]
+            let term1 = ctx.multiply_polys_flat_ntt_negacyclic(
+                d_i,
+                &rlk1_ntt[digit_idx],
+                &ctx.params.moduli[..num_primes],
+            )?;
+
+            for i in 0..(n * num_primes) {
+                let q = ctx.params.moduli[i % num_primes];
+                result_c1[i] = ((result_c1[i] as u128 + term1[i] as u128) % q as u128) as u64;
+            }
+        }
+
+        // Step 3: Rescale to drop one prime
+        let new_level = level - 1;
+        let result_c0_rescaled = ctx.exact_rescale_gpu(&result_c0, level)?;
+        let result_c1_rescaled = ctx.exact_rescale_gpu(&result_c1, level)?;
+
+        // New scale is scale1 × scale2 / q_L (approximately scale²)
+        let new_scale = (self.scale * other.scale) / ctx.params.moduli[level] as f64;
+
+        Ok(Self {
+            c0: result_c0_rescaled,
+            c1: result_c1_rescaled,
+            n,
+            num_primes: new_level + 1,
+            level: new_level,
+            scale: new_scale,
+        })
     }
 }
 

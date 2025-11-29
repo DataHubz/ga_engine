@@ -39,6 +39,9 @@ pub mod relin_keys;
 pub mod ciphertext_ops;
 
 #[cfg(feature = "v2-gpu-cuda")]
+pub mod inversion;
+
+#[cfg(feature = "v2-gpu-cuda")]
 pub use geometric::CudaGeometricProduct;
 
 #[cfg(feature = "v2-gpu-cuda")]

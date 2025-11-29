@@ -47,6 +47,7 @@
 pub mod backends;
 pub mod core;
 pub mod params;
+pub mod inversion;
 
 // TODO: Add after implementing optimized versions
 // pub mod ckks_rns;

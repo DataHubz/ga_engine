@@ -137,6 +137,9 @@ impl RotorND {
     ///
     /// This performs the rotation without explicit projection coefficients.
     ///
+    /// Uses direct geometric algebra formula: v' = v + 2s(B⌋v) + 2(B⌋(B⌋v))
+    /// This is O(n) complexity vs O(n²) for matrix multiplication.
+    ///
     /// # Arguments
     ///
     /// * `v` - Vector to rotate
@@ -151,19 +154,9 @@ impl RotorND {
     pub fn apply(&self, v: &[f64]) -> Vec<f64> {
         assert_eq!(v.len(), self.dimension, "Vector dimension must match rotor dimension");
 
-        // Use matrix representation for guaranteed correctness
-        // This is slower than a direct formula but ensures numerical stability
-        // and correct orthogonal transformation
-        let matrix = self.to_matrix();
-        let mut result = vec![0.0; v.len()];
-
-        for i in 0..v.len() {
-            for j in 0..v.len() {
-                result[i] += matrix[i][j] * v[j];
-            }
-        }
-
-        result
+        // Use direct sandwich product formula: O(n)
+        // This is faster than matrix conversion (O(n²)) + multiply (O(n²))
+        self.apply_sandwich_direct(v)
     }
 
     /// Direct sandwich product computation using correct GA formula

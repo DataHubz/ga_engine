@@ -66,6 +66,9 @@ pub mod medical_imaging;
 #[cfg(feature = "lattice-reduction")]
 pub mod lattice_reduction;
 
+// Cryptanalysis using GA (S-box analysis, differential trail propagation)
+pub mod cryptanalysis;
+
 // --- Public API exports ---
 
 // 3D types and operations

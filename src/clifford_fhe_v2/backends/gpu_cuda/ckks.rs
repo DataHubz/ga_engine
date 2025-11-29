@@ -80,8 +80,75 @@ pub struct CudaPlaintext {
     /// Number of RNS primes
     pub num_primes: usize,
 
+    /// Current level in modulus chain
+    pub level: usize,
+
     /// Scaling factor
     pub scale: f64,
+}
+
+impl CudaPlaintext {
+    /// Encode values at a specific level
+    ///
+    /// This is useful when you need to create a plaintext at a specific level
+    /// to match the level of a ciphertext (e.g., for adding constants).
+    ///
+    /// # Arguments
+    ///
+    /// * `values` - Values to encode (complex numbers or real values)
+    /// * `scale` - Scaling factor
+    /// * `params` - FHE parameters
+    /// * `level` - Level in modulus chain (0 to num_primes-1)
+    ///
+    /// # Returns
+    ///
+    /// Encoded plaintext at the specified level
+    pub fn encode_at_level(
+        values: &[f64],
+        scale: f64,
+        params: &CliffordFHEParams,
+        level: usize,
+    ) -> Self {
+        let n = params.n;
+        let num_primes = level + 1;
+
+        // Simplified encoding: just scale and convert to integer mod each prime
+        // For division, we mainly use this for constant 2.0, so this is sufficient
+        let mut poly = vec![0u64; n * num_primes];
+
+        for (i, &val) in values.iter().enumerate().take(n / 2) {
+            let scaled_val = (val * scale).round() as i64;
+
+            for prime_idx in 0..num_primes {
+                let q = params.moduli[prime_idx];
+                let idx = i * num_primes + prime_idx;
+
+                // Handle negative values
+                let val_mod_q = if scaled_val >= 0 {
+                    (scaled_val as u64) % q
+                } else {
+                    let abs_val = (-scaled_val) as u64;
+                    q - (abs_val % q)
+                };
+
+                poly[idx] = val_mod_q;
+            }
+        }
+
+        Self {
+            poly,
+            n,
+            num_primes,
+            level,
+            scale,
+        }
+    }
+
+    /// Encode values using default level (max level)
+    pub fn encode(values: &[f64], scale: f64, params: &CliffordFHEParams) -> Self {
+        let max_level = params.moduli.len() - 1;
+        Self::encode_at_level(values, scale, params, max_level)
+    }
 }
 
 impl CudaCkksContext {
@@ -182,6 +249,174 @@ impl CudaCkksContext {
             gpu_twiddles_inv: Some(gpu_twiddles_inv),
             gpu_moduli: Some(gpu_moduli),
         })
+    }
+
+    /// Get reference to FHE parameters
+    pub fn params(&self) -> &CliffordFHEParams {
+        &self.params
+    }
+
+    /// Get reference to NTT contexts
+    pub fn ntt_contexts(&self) -> &[CudaNttContext] {
+        &self.ntt_contexts
+    }
+
+    /// Get reference to rescale inversion table
+    pub fn rescale_inv_table(&self) -> &[Vec<u64>] {
+        &self.rescale_inv_table
+    }
+
+    /// Encrypt plaintext using public key
+    ///
+    /// Implements CKKS encryption: (c0, c1) where
+    /// - c0 = b*u + e0 + m
+    /// - c1 = a*u + e1
+    ///
+    /// where (a, b) is the public key and u, e0, e1 are random noise
+    pub fn encrypt(&self, pt: &CudaPlaintext, pk: &PublicKey) -> Result<CudaCiphertext, String> {
+        use rand::{thread_rng, Rng};
+        use rand_distr::{Distribution, Normal};
+
+        let n = self.params.n;
+        let level = pt.level;
+        let num_primes = level + 1;
+        let moduli = &self.params.moduli[..num_primes];
+        let mut rng = thread_rng();
+
+        // Sample ternary random polynomial u ∈ {-1, 0, 1}^n
+        let u_coeffs: Vec<i64> = (0..n)
+            .map(|_| {
+                let val: f64 = rng.gen();
+                if val < 0.33 {
+                    -1
+                } else if val < 0.66 {
+                    0
+                } else {
+                    1
+                }
+            })
+            .collect();
+
+        // Sample error polynomials e0, e1 from Gaussian distribution
+        let normal = Normal::new(0.0, self.params.error_std).unwrap();
+        let e0_coeffs: Vec<i64> = (0..n).map(|_| normal.sample(&mut rng).round() as i64).collect();
+        let e1_coeffs: Vec<i64> = (0..n).map(|_| normal.sample(&mut rng).round() as i64).collect();
+
+        // Convert to flat RNS layout (coefficient-interleaved)
+        let u_flat = self.coeffs_to_flat_rns(&u_coeffs, moduli);
+        let e0_flat = self.coeffs_to_flat_rns(&e0_coeffs, moduli);
+        let e1_flat = self.coeffs_to_flat_rns(&e1_coeffs, moduli);
+
+        // Extract pk.a and pk.b as flat RNS
+        let pk_a_flat = self.rns_vec_to_flat(pk.a[..n].to_vec(), moduli);
+        let pk_b_flat = self.rns_vec_to_flat(pk.b[..n].to_vec(), moduli);
+
+        // Multiply pk.b * u using NTT
+        let bu_flat = self.multiply_flat_rns(&pk_b_flat, &u_flat, moduli)?;
+
+        // Multiply pk.a * u using NTT
+        let au_flat = self.multiply_flat_rns(&pk_a_flat, &u_flat, moduli)?;
+
+        // c0 = b*u + e0 + m (all flat RNS)
+        let mut c0 = vec![0u64; n * num_primes];
+        for i in 0..(n * num_primes) {
+            let q = moduli[i % num_primes];
+            let sum = (bu_flat[i] as u128 + e0_flat[i] as u128 + pt.poly[i] as u128) % q as u128;
+            c0[i] = sum as u64;
+        }
+
+        // c1 = a*u + e1 (all flat RNS)
+        let mut c1 = vec![0u64; n * num_primes];
+        for i in 0..(n * num_primes) {
+            let q = moduli[i % num_primes];
+            let sum = (au_flat[i] as u128 + e1_flat[i] as u128) % q as u128;
+            c1[i] = sum as u64;
+        }
+
+        Ok(CudaCiphertext {
+            c0,
+            c1,
+            n,
+            num_primes,
+            level,
+            scale: pt.scale,
+        })
+    }
+
+    /// Convert signed coefficients to flat RNS layout
+    fn coeffs_to_flat_rns(&self, coeffs: &[i64], moduli: &[u64]) -> Vec<u64> {
+        let n = coeffs.len();
+        let num_primes = moduli.len();
+        let mut flat = vec![0u64; n * num_primes];
+
+        for (i, &coeff) in coeffs.iter().enumerate() {
+            for (j, &q) in moduli.iter().enumerate() {
+                let val_mod_q = if coeff >= 0 {
+                    (coeff as u64) % q
+                } else {
+                    let abs_val = (-coeff) as u64;
+                    q - (abs_val % q)
+                };
+                flat[i * num_primes + j] = val_mod_q;
+            }
+        }
+
+        flat
+    }
+
+    /// Convert RNS representation vector to flat layout
+    fn rns_vec_to_flat(&self, rns_vec: Vec<crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation>, moduli: &[u64]) -> Vec<u64> {
+        let n = rns_vec.len();
+        let num_primes = moduli.len();
+        let mut flat = vec![0u64; n * num_primes];
+
+        for (i, rns_rep) in rns_vec.iter().enumerate() {
+            for j in 0..num_primes {
+                flat[i * num_primes + j] = rns_rep.values[j];
+            }
+        }
+
+        flat
+    }
+
+    /// Multiply two polynomials in flat RNS layout using NTT
+    fn multiply_flat_rns(&self, a: &[u64], b: &[u64], moduli: &[u64]) -> Result<Vec<u64>, String> {
+        let n = self.params.n;
+        let num_primes = moduli.len();
+        let mut result = vec![0u64; n * num_primes];
+
+        // For each RNS prime, perform NTT multiplication
+        for (prime_idx, &q) in moduli.iter().enumerate() {
+            let ntt_ctx = &self.ntt_contexts[prime_idx];
+
+            // Extract coefficients for this prime
+            let mut a_prime = vec![0u64; n];
+            let mut b_prime = vec![0u64; n];
+            for i in 0..n {
+                a_prime[i] = a[i * num_primes + prime_idx];
+                b_prime[i] = b[i * num_primes + prime_idx];
+            }
+
+            // Forward NTT
+            ntt_ctx.forward(&mut a_prime)?;
+            ntt_ctx.forward(&mut b_prime)?;
+
+            // Pointwise multiplication in NTT domain
+            let mut product = vec![0u64; n];
+            for i in 0..n {
+                product[i] = ((a_prime[i] as u128 * b_prime[i] as u128) % q as u128) as u64;
+            }
+
+            // Inverse NTT
+            ntt_ctx.inverse(&mut product)?;
+
+            // Store back to flat layout
+            for i in 0..n {
+                result[i * num_primes + prime_idx] = product[i];
+            }
+        }
+
+        Ok(result)
     }
 
     /// Find primitive N-th root of unity modulo q
@@ -509,6 +744,7 @@ impl CudaCkksContext {
             poly,
             n: self.params.n,
             num_primes,
+            level: num_primes - 1,  // Level is num_primes - 1
             scale,
         })
     }
@@ -575,19 +811,9 @@ impl CudaCkksContext {
         })
     }
 
-    /// Get NTT contexts
-    pub fn ntt_contexts(&self) -> &[CudaNttContext] {
-        &self.ntt_contexts
-    }
-
     /// Get device
     pub fn device(&self) -> &Arc<CudaDeviceContext> {
         &self.device
-    }
-
-    /// Get parameters
-    pub fn params(&self) -> &CliffordFHEParams {
-        &self.params
     }
 
     /// Multiply two ciphertexts using GPU NTT-based polynomial multiplication
