@@ -1881,34 +1881,51 @@ impl CudaCkksContext {
         let moduli = &self.params.moduli[..=level];
         let num_primes = moduli.len();
 
-        // Convert secret key to flat layout at ciphertext's level
-        let sk_flat = Self::rns_vec_to_flat_at_level(&sk.coeffs, level, num_primes);
+        // Convert secret key to strided layout at ciphertext's level
+        let sk_strided = Self::rns_vec_to_flat_at_level(&sk.coeffs, level, num_primes);
 
-        // Convert ciphertext from strided to flat layout for NTT
-        let c1_flat = self.strided_to_flat(&ct.c1, n, ct.num_primes, num_primes);
-
-        // Compute c1 * s using CUDA NTT (negacyclic convolution)
-        // TODO: Implement proper CUDA NTT multiply for negacyclic ring
-        // For now, use CPU multiplication
-        let c1s = self.multiply_polys_cpu_negacyclic(&c1_flat, &sk_flat, moduli)?;
-
-        // Convert c0 to flat layout
-        let c0_flat = self.strided_to_flat(&ct.c0, n, ct.num_primes, num_primes);
-
-        // m = c0 + c1*s (in flat layout)
-        let mut m_flat = vec![0u64; n * num_primes];
-        for prime_idx in 0..num_primes {
-            let q = moduli[prime_idx];
+        // Extract c1 in strided layout (truncate to active primes if needed)
+        let c1_strided: Vec<u64> = if ct.num_primes == num_primes {
+            ct.c1.clone()
+        } else {
+            // Truncate to only active primes
+            let mut c1_active = vec![0u64; n * num_primes];
             for coeff_idx in 0..n {
-                let flat_idx = prime_idx * n + coeff_idx;
-                m_flat[flat_idx] = ((c0_flat[flat_idx] as u128 + c1s[flat_idx] as u128) % q as u128) as u64;
+                for prime_idx in 0..num_primes {
+                    c1_active[coeff_idx * num_primes + prime_idx] =
+                        ct.c1[coeff_idx * ct.num_primes + prime_idx];
+                }
+            }
+            c1_active
+        };
+
+        // Compute c1 * s using CPU negacyclic multiplication (both in strided layout)
+        let c1s = self.multiply_polys_cpu_negacyclic(&c1_strided, &sk_strided, moduli)?;
+
+        // Extract c0 in strided layout
+        let c0_strided: Vec<u64> = if ct.num_primes == num_primes {
+            ct.c0.clone()
+        } else {
+            // Truncate to only active primes
+            let mut c0_active = vec![0u64; n * num_primes];
+            for coeff_idx in 0..n {
+                for prime_idx in 0..num_primes {
+                    c0_active[coeff_idx * num_primes + prime_idx] =
+                        ct.c0[coeff_idx * ct.num_primes + prime_idx];
+                }
+            }
+            c0_active
+        };
+
+        // m = c0 + c1*s (in strided layout)
+        let mut m_strided = vec![0u64; n * num_primes];
+        for coeff_idx in 0..n {
+            for prime_idx in 0..num_primes {
+                let q = moduli[prime_idx];
+                let idx = coeff_idx * num_primes + prime_idx;
+                m_strided[idx] = ((c0_strided[idx] as u128 + c1s[idx] as u128) % q as u128) as u64;
             }
         }
-
-        // Convert from flat to strided layout before returning
-        // Flat: m_flat[prime_idx * n + coeff_idx]
-        // Strided: m_strided[coeff_idx * num_primes + prime_idx]
-        let m_strided = self.flat_to_strided(&m_flat, n, num_primes, num_primes);
 
         Ok(CudaPlaintext {
             poly: m_strided,
