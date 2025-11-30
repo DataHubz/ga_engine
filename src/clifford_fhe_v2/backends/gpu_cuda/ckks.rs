@@ -1903,8 +1903,8 @@ impl CudaCkksContext {
             c1_active
         };
 
-        // Compute c1 * s using CPU negacyclic multiplication (both in strided layout)
-        let c1s = self.multiply_polys_cpu_negacyclic(&c1_strided, &sk_strided, moduli)?;
+        // Compute c1 * s using NTT-based multiplication (both in strided layout)
+        let c1s = self.multiply_polys_ntt(&c1_strided, &sk_strided, num_primes)?;
 
         // Extract c0 in strided layout
         let c0_strided: Vec<u64> = if ct.num_primes == num_primes {
@@ -1969,7 +1969,49 @@ impl CudaCkksContext {
         Ok(slots)
     }
 
-    /// CPU polynomial multiplication for negacyclic ring (fallback)
+    /// NTT-based polynomial multiplication for negacyclic ring
+    ///
+    /// Uses the NTT contexts to perform fast O(n log n) multiplication
+    /// instead of slow O(n²) schoolbook multiplication.
+    fn multiply_polys_ntt(&self, a: &[u64], b: &[u64], num_primes: usize) -> Result<Vec<u64>, String> {
+        let n = self.params.n;
+        let mut result = vec![0u64; n * num_primes];
+
+        // For each RNS prime, use NTT multiplication
+        for prime_idx in 0..num_primes {
+            let ntt_ctx = &self.ntt_contexts[prime_idx];
+
+            // Extract polynomials for this prime (strided layout)
+            let mut p1 = vec![0u64; n];
+            let mut p2 = vec![0u64; n];
+            for coeff_idx in 0..n {
+                p1[coeff_idx] = a[coeff_idx * num_primes + prime_idx];
+                p2[coeff_idx] = b[coeff_idx * num_primes + prime_idx];
+            }
+
+            // Multiply using NTT (negacyclic convolution)
+            // Forward NTT on both polynomials
+            ntt_ctx.forward(&mut p1)?;
+            ntt_ctx.forward(&mut p2)?;
+
+            // Pointwise multiply in NTT domain
+            let mut product = vec![0u64; n];
+            ntt_ctx.pointwise_multiply(&p1, &p2, &mut product)?;
+
+            // Inverse NTT to get result in coefficient domain
+            ntt_ctx.inverse(&mut product)?;
+
+            // Store result back in strided layout
+            for coeff_idx in 0..n {
+                result[coeff_idx * num_primes + prime_idx] = product[coeff_idx];
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// CPU polynomial multiplication for negacyclic ring (DEPRECATED - use multiply_polys_ntt)
+    #[allow(dead_code)]
     fn multiply_polys_cpu_negacyclic(&self, a: &[u64], b: &[u64], moduli: &[u64]) -> Result<Vec<u64>, String> {
         let n = self.params.n;
         let num_primes = moduli.len();
