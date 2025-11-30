@@ -13,7 +13,7 @@ fn main() -> Result<(), String> {
 
     println!("Testing CUDA inverse NTT for n={}", n);
     println!("q={}", q);
-    println!("omega={}\n", psi, omega);
+    println!("psi={}, omega={}\n", psi, omega);
 
     let cuda_ntt = CudaNttContext::new(n, q, omega)?;
     let cpu_ntt = CpuNttContext::new(n, q);
