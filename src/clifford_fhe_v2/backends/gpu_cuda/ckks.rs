@@ -2001,16 +2001,31 @@ impl CudaCkksContext {
                 p2[coeff_idx] = b[coeff_idx * num_primes + prime_idx];
             }
 
-            // Debug first prime
+            // Debug first prime with more detail
             if std::env::var("NTT_DEBUG").is_ok() && prime_idx == 0 {
-                println!("[NTT_DEBUG] Before multiply: p1[0]={}, p2[0]={}", p1[0], p2[0]);
+                println!("[NTT_DEBUG] modulus q={}", q);
+                println!("[NTT_DEBUG] n={}", n);
+                println!("[NTT_DEBUG] Before multiply: p1[0]={}, p1[1]={}, p2[0]={}, p2[1]={}",
+                    p1[0], p1[1], p2[0], p2[1]);
+
+                // Count non-zero coefficients in p2 (sk)
+                let nonzero_count = p2.iter().filter(|&&x| x != 0).count();
+                println!("[NTT_DEBUG] p2 (sk) non-zero coeffs: {} / {}", nonzero_count, n);
+
+                // For ternary secret key, check how many are 1, q-1 (=-1), or other
+                let ones = p2.iter().filter(|&&x| x == 1).count();
+                let neg_ones = p2.iter().filter(|&&x| x == q - 1).count();
+                let zeros = p2.iter().filter(|&&x| x == 0).count();
+                let others = n - ones - neg_ones - zeros;
+                println!("[NTT_DEBUG] p2 distribution: {} ones, {} neg-ones (q-1), {} zeros, {} others",
+                    ones, neg_ones, zeros, others);
             }
 
             // Multiply using CPU NTT (includes negacyclic twisting/untwisting)
             let product = ntt_ctx.multiply_polynomials(&p1, &p2);
 
             if std::env::var("NTT_DEBUG").is_ok() && prime_idx == 0 {
-                println!("[NTT_DEBUG] After multiply: product[0]={}", product[0]);
+                println!("[NTT_DEBUG] After multiply: product[0]={}, product[1]={}", product[0], product[1]);
             }
 
             // Store result back in strided layout
