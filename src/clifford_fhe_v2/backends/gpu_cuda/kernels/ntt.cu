@@ -37,9 +37,11 @@ __device__ unsigned long long mul_mod(unsigned long long a, unsigned long long b
 
     // Process high 64 bits
     for (int i = 63; i >= 0; i--) {
-        // Double the current result
-        result = (result << 1);
-        if (result >= q) result -= q;
+        // Double the current result: result = (result * 2) mod q
+        // Since result < q, result * 2 < 2q, so at most one subtraction needed
+        unsigned long long doubled = result + result;  // Safer than result * 2 or result << 1
+        if (doubled >= q) doubled -= q;
+        result = doubled;
 
         // Add current bit if set
         if ((hi >> i) & 1ULL) {
@@ -51,8 +53,9 @@ __device__ unsigned long long mul_mod(unsigned long long a, unsigned long long b
     // Process low 64 bits
     for (int i = 63; i >= 0; i--) {
         // Double the current result
-        result = (result << 1);
-        if (result >= q) result -= q;
+        unsigned long long doubled = result + result;
+        if (doubled >= q) doubled -= q;
+        result = doubled;
 
         // Add current bit if set
         if ((lo >> i) & 1ULL) {
