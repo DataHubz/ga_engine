@@ -166,9 +166,14 @@ impl CudaCkksContext {
         // Create NTT context for each RNS prime
         let mut ntt_contexts = Vec::new();
         for (i, &q) in params.moduli.iter().enumerate() {
-            // Find primitive root for this prime
-            let root = Self::find_primitive_root(params.n, q)?;
-            let ntt_ctx = CudaNttContext::new(params.n, q, root)?;
+            // Find primitive 2N-th root (psi) for this prime
+            let psi = Self::find_primitive_root(params.n, q)?;
+
+            // CUDA NTT needs primitive N-th root (omega) for cyclic convolution
+            // omega = psi^2 (since psi is 2N-th root, psi^2 is N-th root)
+            let omega = ((psi as u128 * psi as u128) % q as u128) as u64;
+
+            let ntt_ctx = CudaNttContext::new(params.n, q, omega)?;
             ntt_contexts.push(ntt_ctx);
 
             if (i + 1) % 5 == 0 || i + 1 == params.moduli.len() {
