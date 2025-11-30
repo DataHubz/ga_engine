@@ -186,16 +186,6 @@ impl CudaNttContext {
             func_bit_reverse.launch(config, (&mut gpu_coeffs, self.n as u32, self.log_n as u32))
                 .map_err(|e| format!("Bit-reverse failed: {:?}", e))?;
         }
-        // SYNCHRONIZE after bit-reverse to ensure completion
-        self.device.device.synchronize()
-            .map_err(|e| format!("Sync after bit-reverse failed: {:?}", e))?;
-
-        // DEBUG: Print after bit-reverse (only for n <= 16)
-        if self.n <= 16 {
-            let debug_data = self.device.device.dtoh_sync_copy(&gpu_coeffs)
-                .map_err(|e| format!("Debug copy failed: {:?}", e))?;
-            println!("[DEBUG] After bit-reverse: {:?}", debug_data);
-        }
 
         // Inverse NTT stages (SAME ORDER as forward, just with omega_inv twiddles)
         let mut m = 1usize;
@@ -208,17 +198,6 @@ impl CudaNttContext {
                 func_ntt_inv.launch(config, (&mut gpu_coeffs, &gpu_twiddles_inv, self.n as u32, self.q, stage as u32, m as u32))
                     .map_err(|e| format!("Inverse NTT stage {} failed: {:?}", stage, e))?;
             }
-            // SYNCHRONIZE after each stage to ensure sequential execution
-            self.device.device.synchronize()
-                .map_err(|e| format!("Sync after stage {} failed: {:?}", stage, e))?;
-
-            // DEBUG: Print after each stage (only for n <= 16)
-            if self.n <= 16 {
-                let debug_data = self.device.device.dtoh_sync_copy(&gpu_coeffs)
-                    .map_err(|e| format!("Debug copy failed: {:?}", e))?;
-                println!("[DEBUG] After stage {} (m={}): {:?}", stage, m, debug_data);
-            }
-
             m *= 2;
         }
 
@@ -230,17 +209,6 @@ impl CudaNttContext {
         unsafe {
             func_scalar.launch(config, (&mut gpu_coeffs, self.n_inv, self.n as u32, self.q))
                 .map_err(|e| format!("Scalar multiply failed: {:?}", e))?;
-        }
-        // SYNCHRONIZE before reading back results
-        self.device.device.synchronize()
-            .map_err(|e| format!("Sync after scalar multiply failed: {:?}", e))?;
-
-        // DEBUG: Print before final copy (only for n <= 16)
-        if self.n <= 16 {
-            println!("[DEBUG] n_inv = {}", self.n_inv);
-            let debug_data = self.device.device.dtoh_sync_copy(&gpu_coeffs)
-                .map_err(|e| format!("Debug copy failed: {:?}", e))?;
-            println!("[DEBUG] After n_inv scaling: {:?}", debug_data);
         }
 
         // Copy result back
