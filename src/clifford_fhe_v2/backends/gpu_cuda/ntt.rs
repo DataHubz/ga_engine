@@ -190,6 +190,13 @@ impl CudaNttContext {
         self.device.device.synchronize()
             .map_err(|e| format!("Sync after bit-reverse failed: {:?}", e))?;
 
+        // DEBUG: Print after bit-reverse (only for n <= 16)
+        if self.n <= 16 {
+            let debug_data = self.device.device.dtoh_sync_copy(&gpu_coeffs)
+                .map_err(|e| format!("Debug copy failed: {:?}", e))?;
+            println!("[DEBUG] After bit-reverse: {:?}", debug_data);
+        }
+
         // Inverse NTT stages (SAME ORDER as forward, just with omega_inv twiddles)
         let mut m = 1usize;
         for stage in 0..self.log_n {
@@ -204,6 +211,14 @@ impl CudaNttContext {
             // SYNCHRONIZE after each stage to ensure sequential execution
             self.device.device.synchronize()
                 .map_err(|e| format!("Sync after stage {} failed: {:?}", stage, e))?;
+
+            // DEBUG: Print after each stage (only for n <= 16)
+            if self.n <= 16 {
+                let debug_data = self.device.device.dtoh_sync_copy(&gpu_coeffs)
+                    .map_err(|e| format!("Debug copy failed: {:?}", e))?;
+                println!("[DEBUG] After stage {} (m={}): {:?}", stage, m, debug_data);
+            }
+
             m *= 2;
         }
 
@@ -219,6 +234,14 @@ impl CudaNttContext {
         // SYNCHRONIZE before reading back results
         self.device.device.synchronize()
             .map_err(|e| format!("Sync after scalar multiply failed: {:?}", e))?;
+
+        // DEBUG: Print before final copy (only for n <= 16)
+        if self.n <= 16 {
+            println!("[DEBUG] n_inv = {}", self.n_inv);
+            let debug_data = self.device.device.dtoh_sync_copy(&gpu_coeffs)
+                .map_err(|e| format!("Debug copy failed: {:?}", e))?;
+            println!("[DEBUG] After n_inv scaling: {:?}", debug_data);
+        }
 
         // Copy result back
         let result = self.device.device.dtoh_sync_copy(&gpu_coeffs)
