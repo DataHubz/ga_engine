@@ -119,23 +119,26 @@ __global__ void ntt_forward(
 
     if (gid >= total_butterflies) return;
 
-    // Butterfly indices
-    unsigned int k = gid / m;
-    unsigned int j = gid % m;
-    unsigned int butterfly_span = m * 2;
+    // Butterfly indices (matches CPU Cooley-Tukey DIT)
+    unsigned int m2 = m * 2;
+    unsigned int k = gid / m;        // Which butterfly group
+    unsigned int j = gid % m;        // Position within group
 
-    unsigned int idx1 = k * butterfly_span + j;
+    unsigned int idx1 = k * m2 + j;
     unsigned int idx2 = idx1 + m;
 
-    // Harvey butterfly: (a, b) -> (a + w*b, a - w*b)
-    unsigned long long a = coeffs[idx1];
-    unsigned long long b = coeffs[idx2];
-    unsigned long long w = twiddles[m + j];
+    // FIXED: Correct twiddle indexing
+    // w = omega^((n/m2) * j) = twiddles[(n/m2) * j]
+    unsigned int twiddle_stride = n / m2;
+    unsigned int twiddle_idx = (twiddle_stride * j) % n;
+    unsigned long long w = twiddles[twiddle_idx];
 
-    unsigned long long wb = mul_mod(w, b, q);
+    // Cooley-Tukey butterfly
+    unsigned long long u = coeffs[idx1];
+    unsigned long long t = mul_mod(w, coeffs[idx2], q);
 
-    coeffs[idx1] = add_mod(a, wb, q);
-    coeffs[idx2] = sub_mod(a, wb, q);
+    coeffs[idx1] = add_mod(u, t, q);
+    coeffs[idx2] = sub_mod(u, t, q);
 }
 
 /**
@@ -155,25 +158,25 @@ __global__ void ntt_inverse(
 
     if (gid >= total_butterflies) return;
 
-    // Butterfly indices (inverse pattern)
+    // Butterfly indices (same as forward - CPU uses same Cooley-Tukey for both)
+    unsigned int m2 = m * 2;
     unsigned int k = gid / m;
     unsigned int j = gid % m;
-    unsigned int butterfly_span = m * 2;
 
-    unsigned int idx1 = k * butterfly_span + j;
+    unsigned int idx1 = k * m2 + j;
     unsigned int idx2 = idx1 + m;
 
-    // Inverse butterfly: (a, b) -> ((a + b)/2, w*(a - b)/2)
-    unsigned long long a = coeffs[idx1];
-    unsigned long long b = coeffs[idx2];
-    unsigned long long w_inv = twiddles_inv[m + j];
+    // FIXED: Correct twiddle indexing (same formula as forward, but with omega_inv twiddles)
+    unsigned int twiddle_stride = n / m2;
+    unsigned int twiddle_idx = (twiddle_stride * j) % n;
+    unsigned long long w = twiddles_inv[twiddle_idx];
 
-    unsigned long long sum = add_mod(a, b, q);
-    unsigned long long diff = sub_mod(a, b, q);
-    unsigned long long w_diff = mul_mod(w_inv, diff, q);
+    // Same Cooley-Tukey butterfly as forward (CPU does this for inverse too)
+    unsigned long long u = coeffs[idx1];
+    unsigned long long t = mul_mod(w, coeffs[idx2], q);
 
-    coeffs[idx1] = sum;
-    coeffs[idx2] = w_diff;
+    coeffs[idx1] = add_mod(u, t, q);
+    coeffs[idx2] = sub_mod(u, t, q);
 }
 
 /**
