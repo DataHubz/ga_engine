@@ -13,8 +13,8 @@ pub struct CudaNttContext {
     pub(crate) n: usize,
     pub(crate) q: u64,
     pub(crate) root: u64,
-    pub(crate) twiddles: Vec<u64>,
-    pub(crate) twiddles_inv: Vec<u64>,
+    pub twiddles: Vec<u64>,        // Made public for debugging
+    pub twiddles_inv: Vec<u64>,    // Made public for debugging
     pub(crate) n_inv: u64,
     log_n: usize,
     // Cached to avoid recompilation
@@ -186,6 +186,9 @@ impl CudaNttContext {
             func_bit_reverse.launch(config, (&mut gpu_coeffs, self.n as u32, self.log_n as u32))
                 .map_err(|e| format!("Bit-reverse failed: {:?}", e))?;
         }
+        // SYNCHRONIZE after bit-reverse to ensure completion
+        self.device.device.synchronize()
+            .map_err(|e| format!("Sync after bit-reverse failed: {:?}", e))?;
 
         // Inverse NTT stages (SAME ORDER as forward, just with omega_inv twiddles)
         let mut m = 1usize;
@@ -198,6 +201,9 @@ impl CudaNttContext {
                 func_ntt_inv.launch(config, (&mut gpu_coeffs, &gpu_twiddles_inv, self.n as u32, self.q, stage as u32, m as u32))
                     .map_err(|e| format!("Inverse NTT stage {} failed: {:?}", stage, e))?;
             }
+            // SYNCHRONIZE after each stage to ensure sequential execution
+            self.device.device.synchronize()
+                .map_err(|e| format!("Sync after stage {} failed: {:?}", stage, e))?;
             m *= 2;
         }
 
@@ -210,6 +216,9 @@ impl CudaNttContext {
             func_scalar.launch(config, (&mut gpu_coeffs, self.n_inv, self.n as u32, self.q))
                 .map_err(|e| format!("Scalar multiply failed: {:?}", e))?;
         }
+        // SYNCHRONIZE before reading back results
+        self.device.device.synchronize()
+            .map_err(|e| format!("Sync after scalar multiply failed: {:?}", e))?;
 
         // Copy result back
         let result = self.device.device.dtoh_sync_copy(&gpu_coeffs)
