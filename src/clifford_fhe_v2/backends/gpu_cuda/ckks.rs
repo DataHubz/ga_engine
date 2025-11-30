@@ -400,16 +400,24 @@ impl CudaCkksContext {
             }
 
             // Get psi (primitive 2N-th root of unity) for negacyclic twisting
-            // psi = root^(2N/N) = root^2 where root is primitive N-th root
-            // Actually, for negacyclic NTT, psi should be primitive 2N-th root
-            // where psi^N = -1 (mod q), so psi = sqrt(root) if root is N-th root
-            // But easier: psi^(2N) = 1 and psi^N = -1, so we compute it directly
             let psi = Self::compute_psi(n, q)?;
             let psi_inv = Self::mod_inverse(psi, q)?;
+
+            // Debug psi value for first prime
+            if std::env::var("ENCRYPT_DEBUG").is_ok() && prime_idx == 0 {
+                let psi_n = Self::pow_mod(psi, n as u64, q);
+                let psi_2n = Self::pow_mod(psi, 2 * n as u64, q);
+                println!("[ENCRYPT_DEBUG] psi={}, psi^N={} (should be {}=q-1), psi^(2N)={} (should be 1)",
+                    psi, psi_n, q-1, psi_2n);
+            }
 
             // TWIST: Multiply by psi^i to convert to negacyclic
             Self::apply_psi_powers(&mut a_prime, psi, q);
             Self::apply_psi_powers(&mut b_prime, psi, q);
+
+            if std::env::var("ENCRYPT_DEBUG").is_ok() && prime_idx == 0 {
+                println!("[ENCRYPT_DEBUG] After twist: a_prime[0]={}, b_prime[0]={}", a_prime[0], b_prime[0]);
+            }
 
             // Forward NTT (cyclic)
             ntt_ctx.forward(&mut a_prime)?;
