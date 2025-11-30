@@ -1931,6 +1931,15 @@ impl CudaCkksContext {
             }
         }
 
+        // Debug: print first coefficient
+        if std::env::var("DECRYPT_DEBUG").is_ok() {
+            println!("[DECRYPT_DEBUG CUDA] c0[0] prime 0: {}", c0_strided[0]);
+            println!("[DECRYPT_DEBUG CUDA] c1[0] prime 0: {}", c1_strided[0]);
+            println!("[DECRYPT_DEBUG CUDA] sk[0] prime 0: {}", sk_strided[0]);
+            println!("[DECRYPT_DEBUG CUDA] c1s[0] prime 0: {}", c1s[0]);
+            println!("[DECRYPT_DEBUG CUDA] m[0] prime 0: {}", m_strided[0]);
+        }
+
         Ok(CudaPlaintext {
             poly: m_strided,
             n,

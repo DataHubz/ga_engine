@@ -1022,6 +1022,15 @@ impl CkksContext {
             .map(|(c0_i, c1s_i)| c0_i.add(c1s_i))
             .collect();
 
+        // Debug: print first coefficient
+        if std::env::var("DECRYPT_DEBUG").is_ok() {
+            println!("[DECRYPT_DEBUG CPU] c0[0] prime 0: {}", ct.c0[0].values[0]);
+            println!("[DECRYPT_DEBUG CPU] c1[0] prime 0: {}", ct.c1[0].values[0]);
+            println!("[DECRYPT_DEBUG CPU] sk[0] prime 0: {}", sk_at_level[0].values[0]);
+            println!("[DECRYPT_DEBUG CPU] c1s[0] prime 0: {}", c1s[0].values[0]);
+            println!("[DECRYPT_DEBUG CPU] m[0] prime 0: {}", m[0].values[0]);
+        }
+
         Plaintext::new(m, ct.scale, ct.level)
     }
 
