@@ -385,11 +385,13 @@ impl CudaCkksContext {
         let num_primes = moduli.len();
         let mut result = vec![0u64; n * num_primes];
 
-        // For each RNS prime, perform NTT multiplication
+        // For each RNS prime, perform NEGACYCLIC polynomial multiplication
+        // IMPORTANT: CKKS requires negacyclic convolution in R[X]/(X^N + 1)
+        // We use CUDA NTT for cyclic convolution, with CPU-side psi twisting for negacyclic
         for (prime_idx, &q) in moduli.iter().enumerate() {
             let ntt_ctx = &self.ntt_contexts[prime_idx];
 
-            // Extract coefficients for this prime
+            // Extract coefficients for this prime (strided layout)
             let mut a_prime = vec![0u64; n];
             let mut b_prime = vec![0u64; n];
             for i in 0..n {
@@ -397,7 +399,19 @@ impl CudaCkksContext {
                 b_prime[i] = b[i * num_primes + prime_idx];
             }
 
-            // Forward NTT
+            // Get psi (primitive 2N-th root of unity) for negacyclic twisting
+            // psi = root^(2N/N) = root^2 where root is primitive N-th root
+            // Actually, for negacyclic NTT, psi should be primitive 2N-th root
+            // where psi^N = -1 (mod q), so psi = sqrt(root) if root is N-th root
+            // But easier: psi^(2N) = 1 and psi^N = -1, so we compute it directly
+            let psi = Self::compute_psi(n, q)?;
+            let psi_inv = Self::mod_inverse(psi, q)?;
+
+            // TWIST: Multiply by psi^i to convert to negacyclic
+            Self::apply_psi_powers(&mut a_prime, psi, q);
+            Self::apply_psi_powers(&mut b_prime, psi, q);
+
+            // Forward NTT (cyclic)
             ntt_ctx.forward(&mut a_prime)?;
             ntt_ctx.forward(&mut b_prime)?;
 
@@ -407,16 +421,93 @@ impl CudaCkksContext {
                 product[i] = ((a_prime[i] as u128 * b_prime[i] as u128) % q as u128) as u64;
             }
 
-            // Inverse NTT
+            // Inverse NTT (cyclic)
             ntt_ctx.inverse(&mut product)?;
 
-            // Store back to flat layout
+            // UNTWIST: Multiply by psi^{-i} to get final negacyclic result
+            Self::apply_psi_powers(&mut product, psi_inv, q);
+
+            // Store back to strided layout
             for i in 0..n {
                 result[i * num_primes + prime_idx] = product[i];
             }
         }
 
         Ok(result)
+    }
+
+    /// Compute psi (primitive 2N-th root of unity) from NTT root
+    /// For negacyclic NTT: psi^(2N) = 1 and psi^N = -1 (mod q)
+    fn compute_psi(n: usize, q: u64) -> Result<u64, String> {
+        // Find a primitive 2N-th root of unity
+        // For NTT-friendly primes, q ≡ 1 (mod 2N), so such roots exist
+        let two_n = 2 * n as u64;
+
+        if (q - 1) % two_n != 0 {
+            return Err(format!("q-1 = {} not divisible by 2N = {}", q - 1, two_n));
+        }
+
+        // Try small generators to find primitive 2N-th root
+        for g in 2..100u64 {
+            let psi = Self::pow_mod(g, (q - 1) / two_n, q);
+
+            // Verify: psi^(2N) = 1 and psi^N = -1 (mod q)
+            let psi_2n = Self::pow_mod(psi, two_n, q);
+            let psi_n = Self::pow_mod(psi, n as u64, q);
+
+            if psi_2n == 1 && psi_n == q - 1 {
+                return Ok(psi);
+            }
+        }
+
+        Err(format!("Could not find primitive 2N-th root for n={}, q={}", n, q))
+    }
+
+    /// Apply psi powers: multiply poly[i] by psi^i for i=0..n
+    fn apply_psi_powers(poly: &mut [u64], psi: u64, q: u64) {
+        let mut psi_pow = 1u64;
+        for i in 0..poly.len() {
+            poly[i] = ((poly[i] as u128 * psi_pow as u128) % q as u128) as u64;
+            psi_pow = ((psi_pow as u128 * psi as u128) % q as u128) as u64;
+        }
+    }
+
+    /// Modular exponentiation: base^exp mod m
+    fn pow_mod(base: u64, exp: u64, m: u64) -> u64 {
+        let mut result = 1u64;
+        let mut base = base % m;
+        let mut exp = exp;
+
+        while exp > 0 {
+            if exp % 2 == 1 {
+                result = ((result as u128 * base as u128) % m as u128) as u64;
+            }
+            base = ((base as u128 * base as u128) % m as u128) as u64;
+            exp /= 2;
+        }
+
+        result
+    }
+
+    /// Modular inverse using extended Euclidean algorithm
+    fn mod_inverse(a: u64, m: u64) -> Result<u64, String> {
+        let (mut t, mut new_t) = (0i128, 1i128);
+        let (mut r, mut new_r) = (m as i128, a as i128);
+
+        while new_r != 0 {
+            let quotient = r / new_r;
+            (t, new_t) = (new_t, t - quotient * new_t);
+            (r, new_r) = (new_r, r - quotient * new_r);
+        }
+
+        if r > 1 {
+            return Err(format!("{} is not invertible mod {}", a, m));
+        }
+        if t < 0 {
+            t += m as i128;
+        }
+
+        Ok(t as u64)
     }
 
     /// Find primitive N-th root of unity modulo q
