@@ -1377,7 +1377,7 @@ impl CudaCkksContext {
     /// # Arguments
     /// * `gpu_data` - Mutable GPU slice in flat RNS layout [num_primes * n]
     /// * `num_primes` - Number of RNS primes to process
-    fn ntt_forward_batched_gpu(&self, gpu_data: &mut CudaSlice<u64>, num_primes: usize) -> Result<(), String> {
+    pub fn ntt_forward_batched_gpu(&self, gpu_data: &mut CudaSlice<u64>, num_primes: usize) -> Result<(), String> {
         use cudarc::driver::LaunchAsync;
 
         let n = self.params.n;
@@ -1449,7 +1449,7 @@ impl CudaCkksContext {
     }
 
     /// GPU-resident batched inverse NTT
-    fn ntt_inverse_batched_gpu(&self, gpu_data: &mut CudaSlice<u64>, num_primes: usize) -> Result<(), String> {
+    pub fn ntt_inverse_batched_gpu(&self, gpu_data: &mut CudaSlice<u64>, num_primes: usize) -> Result<(), String> {
         use cudarc::driver::LaunchAsync;
 
         let n = self.params.n;
@@ -1521,7 +1521,7 @@ impl CudaCkksContext {
     }
 
     /// GPU-resident batched pointwise multiplication
-    fn ntt_pointwise_multiply_batched_gpu(
+    pub fn ntt_pointwise_multiply_batched_gpu(
         &self,
         gpu_a: &CudaSlice<u64>,
         gpu_b: &CudaSlice<u64>,
@@ -1895,16 +1895,23 @@ impl CudaCkksContext {
         // Convert c0 to flat layout
         let c0_flat = self.strided_to_flat(&ct.c0, n, ct.num_primes, num_primes);
 
-        // m = c0 + c1*s
+        // m = c0 + c1*s (in flat layout)
         let mut m_flat = vec![0u64; n * num_primes];
-        for i in 0..(n * num_primes) {
-            let prime_idx = i % num_primes;
+        for prime_idx in 0..num_primes {
             let q = moduli[prime_idx];
-            m_flat[i] = ((c0_flat[i] as u128 + c1s[i] as u128) % q as u128) as u64;
+            for coeff_idx in 0..n {
+                let flat_idx = prime_idx * n + coeff_idx;
+                m_flat[flat_idx] = ((c0_flat[flat_idx] as u128 + c1s[flat_idx] as u128) % q as u128) as u64;
+            }
         }
 
+        // Convert from flat to strided layout before returning
+        // Flat: m_flat[prime_idx * n + coeff_idx]
+        // Strided: m_strided[coeff_idx * num_primes + prime_idx]
+        let m_strided = self.flat_to_strided(&m_flat, n, num_primes, num_primes);
+
         Ok(CudaPlaintext {
-            poly: m_flat,
+            poly: m_strided,
             n,
             num_primes,
             level,
