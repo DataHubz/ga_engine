@@ -45,6 +45,13 @@ pub struct CudaCkksContext {
     /// GPU-cached RNS moduli for batched operations
     /// Layout: [q_0, q_1, ..., q_L]
     gpu_moduli: Option<CudaSlice<u64>>,
+
+    /// Per-prime primitive 2N-th roots (psi) for negacyclic twist/untwist
+    /// CRITICAL: These must match the omega values used in NTT contexts (omega = psi^2)
+    psi_per_prime: Vec<u64>,
+
+    /// Per-prime psi inverses for negacyclic untwist
+    psi_inv_per_prime: Vec<u64>,
 }
 
 /// CUDA ciphertext representation
@@ -165,6 +172,9 @@ impl CudaCkksContext {
 
         // Create NTT context for each RNS prime
         let mut ntt_contexts = Vec::new();
+        let mut psi_per_prime = Vec::new();
+        let mut psi_inv_per_prime = Vec::new();
+
         for (i, &q) in params.moduli.iter().enumerate() {
             // Find primitive 2N-th root (psi) for this prime
             let psi = Self::find_primitive_root(params.n, q)?;
@@ -173,8 +183,13 @@ impl CudaCkksContext {
             // omega = psi^2 (since psi is 2N-th root, psi^2 is N-th root)
             let omega = ((psi as u128 * psi as u128) % q as u128) as u64;
 
+            // Compute psi inverse for untwisting
+            let psi_inv = Self::mod_inverse(psi, q)?;
+
             let ntt_ctx = CudaNttContext::new(params.n, q, omega)?;
             ntt_contexts.push(ntt_ctx);
+            psi_per_prime.push(psi);
+            psi_inv_per_prime.push(psi_inv);
 
             if (i + 1) % 5 == 0 || i + 1 == params.moduli.len() {
                 println!("  Created {}/{} NTT contexts", i + 1, params.moduli.len());
@@ -253,6 +268,8 @@ impl CudaCkksContext {
             gpu_twiddles_fwd: Some(gpu_twiddles_fwd),
             gpu_twiddles_inv: Some(gpu_twiddles_inv),
             gpu_moduli: Some(gpu_moduli),
+            psi_per_prime,
+            psi_inv_per_prime,
         })
     }
 
@@ -404,16 +421,17 @@ impl CudaCkksContext {
                 b_prime[i] = b[i * num_primes + prime_idx];
             }
 
-            // Get psi (primitive 2N-th root of unity) for negacyclic twisting
-            let psi = Self::compute_psi(n, q)?;
-            let psi_inv = Self::mod_inverse(psi, q)?;
+            // Use the SAME psi that was used to derive omega for this prime
+            // CRITICAL: This ensures omega = psi^2, which makes the negacyclic trick work
+            let psi = self.psi_per_prime[prime_idx];
+            let psi_inv = self.psi_inv_per_prime[prime_idx];
 
             // Debug psi value for first prime
             if std::env::var("ENCRYPT_DEBUG").is_ok() && prime_idx == 0 {
                 let psi_n = Self::pow_mod(psi, n as u64, q);
                 let psi_2n = Self::pow_mod(psi, 2 * n as u64, q);
-                println!("[ENCRYPT_DEBUG] psi={}, psi^N={} (should be {}=q-1), psi^(2N)={} (should be 1)",
-                    psi, psi_n, q-1, psi_2n);
+                println!("[ENCRYPT_DEBUG] prime[0]: psi={}, psi^N={} (q-1={}), psi^(2N)={}",
+                    psi, psi_n, q - 1, psi_2n);
             }
 
             // TWIST: Multiply by psi^i to convert to negacyclic
