@@ -2140,6 +2140,11 @@ impl CudaCkksContext {
         Ok(slots)
     }
 
+    /// Public test wrapper for multiply_polys_ntt
+    pub fn test_multiply_polys_ntt(&self, a: &[u64], b: &[u64], num_primes: usize) -> Result<Vec<u64>, String> {
+        self.multiply_polys_ntt(a, b, num_primes)
+    }
+
     /// NTT-based polynomial multiplication for negacyclic ring
     ///
     /// CRITICAL: Uses the SAME psi values stored in self.psi_per_prime that were

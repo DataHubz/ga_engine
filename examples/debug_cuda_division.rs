@@ -108,6 +108,135 @@ fn main() -> Result<(), String> {
     }
 
     // ========================================
+    // TEST 0.5: NTT Forward/Inverse Roundtrip
+    // ========================================
+    println!("════════════════════════════════════════════════════════════════════════");
+    println!("TEST 0.5: NTT Forward/Inverse Roundtrip");
+    println!("════════════════════════════════════════════════════════════════════════\n");
+
+    {
+        let ntt_ctx = &ctx.ntt_contexts()[0];
+        let n = params.n;
+
+        // Create a simple test polynomial: [1, 2, 3, 4, 0, 0, ...]
+        let mut test_poly: Vec<u64> = vec![0; n];
+        test_poly[0] = 1;
+        test_poly[1] = 2;
+        test_poly[2] = 3;
+        test_poly[3] = 4;
+        let original = test_poly.clone();
+
+        // Forward NTT
+        ntt_ctx.forward(&mut test_poly)?;
+        println!("  After forward NTT: [0]={}, [1]={}, [2]={}, [3]={}",
+            test_poly[0], test_poly[1], test_poly[2], test_poly[3]);
+
+        // Inverse NTT
+        ntt_ctx.inverse(&mut test_poly)?;
+        println!("  After inverse NTT: [0]={}, [1]={}, [2]={}, [3]={}",
+            test_poly[0], test_poly[1], test_poly[2], test_poly[3]);
+
+        // Check roundtrip
+        let mut all_match = true;
+        for i in 0..n {
+            if test_poly[i] != original[i] {
+                println!("  MISMATCH at [{}]: expected {}, got {}", i, original[i], test_poly[i]);
+                all_match = false;
+                if i > 10 { break; }
+            }
+        }
+
+        if all_match {
+            println!("  ✓ PASS - NTT roundtrip correct\n");
+        } else {
+            println!("  ✗ FAIL - NTT roundtrip broken!\n");
+            return Err("NTT roundtrip test failed".to_string());
+        }
+    }
+
+    // ========================================
+    // TEST 0.6: NTT Polynomial Multiplication
+    // ========================================
+    println!("════════════════════════════════════════════════════════════════════════");
+    println!("TEST 0.6: NTT Polynomial Multiplication (negacyclic)");
+    println!("════════════════════════════════════════════════════════════════════════\n");
+
+    {
+        // Test: (1 + x) * (1 + x) = 1 + 2x + x^2 in regular polynomial ring
+        // But in negacyclic ring (mod x^n + 1), x^n = -1
+        // For small test, result should be same since no wraparound
+        let n = params.n;
+        let num_primes = 1; // Test with first prime only
+        let _q = params.moduli[0]; // Unused but kept for reference
+
+        // Create polynomials in strided layout: a = 1 + x, b = 1 + x
+        let mut a_strided = vec![0u64; n * num_primes];
+        let mut b_strided = vec![0u64; n * num_primes];
+        a_strided[0] = 1;  // coeff 0, prime 0
+        a_strided[1 * num_primes] = 1;  // coeff 1, prime 0
+        b_strided[0] = 1;
+        b_strided[1 * num_primes] = 1;
+
+        // Expected: c = 1 + 2x + x^2 (coeffs: [1, 2, 1, 0, 0, ...])
+        let c = ctx.test_multiply_polys_ntt(&a_strided, &b_strided, num_primes)?;
+
+        println!("  (1+x) * (1+x) in negacyclic ring:");
+        println!("  c[0]={}, c[1]={}, c[2]={}, c[3]={}",
+            c[0], c[1 * num_primes], c[2 * num_primes], c[3 * num_primes]);
+
+        // Check result
+        let c0 = c[0];
+        let c1 = c[1 * num_primes];
+        let c2 = c[2 * num_primes];
+
+        if c0 == 1 && c1 == 2 && c2 == 1 {
+            println!("  ✓ PASS - NTT multiplication correct\n");
+        } else {
+            println!("  Expected: [1, 2, 1, 0, ...]");
+            println!("  ✗ FAIL - NTT multiplication broken!\n");
+            return Err("NTT multiplication test failed".to_string());
+        }
+    }
+
+    // ========================================
+    // TEST 0.7: Trivial Encryption (c0=m, c1=0)
+    // ========================================
+    println!("════════════════════════════════════════════════════════════════════════");
+    println!("TEST 0.7: Trivial Encryption (c0=m, c1=0)");
+    println!("════════════════════════════════════════════════════════════════════════\n");
+
+    {
+        let test_val = 3.5;
+        let pt = ctx.encode(&[test_val], scale, max_level)?;
+
+        // Create trivial ciphertext: c0 = m, c1 = 0
+        // Decryption: m' = c0 + c1*s = m + 0 = m
+        let ct_trivial = ga_engine::clifford_fhe_v2::backends::gpu_cuda::ckks::CudaCiphertext {
+            c0: pt.poly.clone(),
+            c1: vec![0u64; pt.poly.len()],
+            n: pt.n,
+            num_primes: pt.num_primes,
+            level: pt.level,
+            scale: pt.scale,
+        };
+
+        let pt_dec = ctx.decrypt(&ct_trivial, &sk)?;
+        let result = ctx.decode(&pt_dec)?;
+
+        let error = (result[0] - test_val).abs();
+        println!("  Input:    {:.10}", test_val);
+        println!("  Output:   {:.10}", result[0]);
+        println!("  Error:    {:.2e}", error);
+
+        if error < 1e-6 {
+            println!("  ✓ PASS - Trivial encryption/decryption works\n");
+        } else {
+            println!("  ✗ FAIL - Even trivial decryption is broken!\n");
+            return Err("Trivial encryption test failed".to_string());
+        }
+    }
+
+    // ========================================
     // TEST 1: Basic encryption/decryption
     // ========================================
     println!("════════════════════════════════════════════════════════════════════════");
