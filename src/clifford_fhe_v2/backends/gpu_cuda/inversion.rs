@@ -26,7 +26,6 @@
 use super::ckks::{CudaCkksContext, CudaCiphertext, CudaPlaintext};
 use super::relin_keys::CudaRelinKeys;
 use crate::clifford_fhe_v2::backends::cpu_optimized::keys::PublicKey;
-use crate::clifford_fhe_v2::params::CliffordFHEParams;
 
 /// Multiply two ciphertexts with relinearization and rescaling (full GPU)
 ///
@@ -134,10 +133,10 @@ pub fn newton_raphson_inverse_gpu(
     println!("  Iterations: {}", iterations);
     println!("  Initial level: {}", ct.level);
 
-    // Encode and encrypt the initial guess
+    // Encode and encrypt the initial guess using proper canonical embedding
     let mut guess_vec = vec![0.0; num_slots];
     guess_vec[0] = initial_guess;
-    let pt_guess = CudaPlaintext::encode(&guess_vec, ct.scale, params);
+    let pt_guess = ctx.encode(&guess_vec, ct.scale, ct.level)?;
     let mut ct_xn = ctx.encrypt(&pt_guess, pk)?;
 
     println!("  Encrypted initial guess at level {}\n", ct_xn.level);
@@ -164,7 +163,8 @@ pub fn newton_raphson_inverse_gpu(
         println!("    Computed a·x_n (level {})", ct_axn.level);
 
         // Step 2: Create trivial ciphertext for constant 2 at ct_axn's level
-        let pt_two = CudaPlaintext::encode_at_level(&two_vec, ct_axn.scale, params, ct_axn.level);
+        // Use proper canonical embedding via context's encode method
+        let pt_two = ctx.encode(&two_vec, ct_axn.scale, ct_axn.level)?;
         let ct_two = create_trivial_ciphertext_gpu(&pt_two, ctx)?;
         println!("    Created trivial ciphertext for 2.0 (level {})", ct_two.level);
 
