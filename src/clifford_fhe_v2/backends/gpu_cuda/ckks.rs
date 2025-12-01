@@ -185,6 +185,11 @@ impl CudaCkksContext {
             // Compute psi inverse for untwisting
             let psi_inv = Self::mod_inverse(psi, q)?;
 
+            // DEBUG: Print psi values for comparison with CPU
+            if i < 3 {
+                println!("  [CUDA] Prime {}: q={}, psi={}, omega={}", i, q, psi, omega);
+            }
+
             let ntt_ctx = CudaNttContext::new(params.n, q, omega)?;
             ntt_contexts.push(ntt_ctx);
             psi_per_prime.push(psi);

@@ -226,6 +226,13 @@ impl KeyContext {
             .map(|&q| NttContext::new(params.n, q))
             .collect();
 
+        // DEBUG: Print CPU psi values for comparison with CUDA
+        for (i, ctx) in ntt_contexts.iter().enumerate() {
+            if i < 3 {
+                println!("  [CPU] Prime {}: q={}, psi={}, omega={}", i, ctx.q, ctx.psi, ctx.omega);
+            }
+        }
+
         println!("  [DEBUG] NTT contexts created in {:.2}s", start.elapsed().as_secs_f64());
 
         // Barrett reducers are cheap, can stay sequential
