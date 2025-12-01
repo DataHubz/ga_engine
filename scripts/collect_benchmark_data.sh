@@ -1,20 +1,20 @@
 #!/bin/bash
 # scripts/collect_benchmark_data.sh
 #
-# Comprehensive data collection for CRYPTO 2026 paper
+# Comprehensive benchmark data collection
 # Runs all benchmarks and collects results in JSON format
 
 set -e
 
 echo "======================================"
-echo "CRYPTO 2026 Benchmark Data Collection"
+echo "Lattice Reduction Benchmark Collection"
 echo "======================================"
 echo ""
 
 # Create results directory
-mkdir -p results/crypto2026
+mkdir -p results/benchmarks
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-RESULTS_DIR="results/crypto2026/$TIMESTAMP"
+RESULTS_DIR="results/benchmarks/$TIMESTAMP"
 mkdir -p $RESULTS_DIR
 
 echo "Results will be saved to: $RESULTS_DIR"

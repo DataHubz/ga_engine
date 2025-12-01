@@ -1,7 +1,6 @@
 // benches/lattice_battle.rs
 //! Comprehensive benchmark suite for LLL/BKZ baseline vs GA-accelerated variants
 //!
-//! This is the core benchmark for CRYPTO 2026 paper.
 //! We compare apples-to-apples: same hardware, same language, same inputs.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};

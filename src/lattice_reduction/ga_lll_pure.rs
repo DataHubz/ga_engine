@@ -1,6 +1,6 @@
 //! GA-LLL Version 2: Pure Rotor-Based GSO
 //!
-//! **CRYPTO 2026 Hypothesis 1: Numerical Stability + Performance**
+//! **Hypothesis 1: Numerical Stability + Performance**
 //!
 //! This is the PURE rotor implementation that eliminates standard vector arithmetic
 //! entirely, using only rotor composition and application.

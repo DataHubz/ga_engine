@@ -1,6 +1,6 @@
 //! GA-Accelerated LLL using Rotor-Based Gram-Schmidt Orthogonalization
 //!
-//! **CRYPTO 2026 Hypothesis 1: Numerical Stability**
+//! **Hypothesis 1: Numerical Stability**
 //!
 //! This is the FIRST test of the GA acceleration hypothesis:
 //! Can n-dimensional rotors provide better numerical stability for lattice reduction?
