@@ -1,7 +1,7 @@
 # GA Engine: High-Performance Geometric Algebra for Homomorphic Encryption
 
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-100%25%20passing-brightgreen.svg)](TESTING_GUIDE.md)
 
 A production-grade Rust framework implementing the first fully homomorphic encryption scheme with native geometric algebra support, enabling privacy-preserving computation on encrypted 3D spatial data.
@@ -186,7 +186,7 @@ Conservative estimate: λ ≥ 118 bits
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone repository
-git clone https://github.com/davidwilliamsilva/ga_engine.git
+git clone https://github.com/DataHubz/ga_engine.git
 cd ga_engine
 
 # Build with optimizations
@@ -273,7 +273,7 @@ If you use this work, please cite:
   title={GA Engine: High-Performance Geometric Algebra for Homomorphic Encryption},
   author={Silva, David William},
   year={2025},
-  url={https://github.com/davidwilliamsilva/ga_engine},
+  url={https://github.com/DataHubz/ga_engine},
   note={Rust framework implementing Clifford FHE with GPU acceleration (Metal, CUDA)}
 }
 ```
@@ -282,8 +282,8 @@ If you use this work, please cite:
 
 - **Author**: David William Silva
 - **Email**: dsilva@datahubz.com
-- **GitHub**: https://github.com/davidwilliamsilva/ga_engine
-- **Issues**: https://github.com/davidwilliamsilva/ga_engine/issues
+- **GitHub**: https://github.com/DataHubz/ga_engine
+- **Issues**: https://github.com/DataHubz/ga_engine/issues
 
 ## Acknowledgments
 
@@ -295,7 +295,7 @@ If you use this work, please cite:
 
 ## License
 
-MIT License - See [LICENSE](LICENSE) file
+Apache License 2.0 - See [LICENSE](LICENSE) file
 
 **Open Source Philosophy**: All code released under permissive license to enable:
 - Verification of academic claims and reproducibility

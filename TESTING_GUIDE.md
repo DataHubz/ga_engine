@@ -462,4 +462,4 @@ For test failures or questions:
 - Check [COMMANDS.md](COMMANDS.md) troubleshooting section
 - Review test output carefully (use `--nocapture` for details)
 - Verify GPU drivers and CUDA/Metal are properly installed
-- File issue at: https://github.com/davidwilliamsilva/ga_engine/issues
+- File issue at: https://github.com/DataHubz/ga_engine/issues

@@ -42,7 +42,7 @@ rustc --version  # Verify ≥1.75
 ### 2. Clone Repository
 
 ```bash
-git clone https://github.com/davidwilliamsilva/ga_engine.git
+git clone https://github.com/DataHubz/ga_engine.git
 cd ga_engine
 ```
 
@@ -454,5 +454,5 @@ If performance is significantly slower, check:
 ## Support
 
 For issues or questions:
-- **GitHub Issues**: https://github.com/davidwilliamsilva/ga_engine/issues
+- **GitHub Issues**: https://github.com/DataHubz/ga_engine/issues
 - **Email**: dsilva@datahubz.com

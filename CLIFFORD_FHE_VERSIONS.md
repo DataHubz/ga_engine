@@ -603,11 +603,11 @@ All code is original implementation with novel contributions in V4 packing strat
 
 ## License
 
-[Specify license here]
+Apache License 2.0 - See [LICENSE](LICENSE) file
 
 ## Contact
 
 For questions about this implementation:
-- GitHub Issues: https://github.com/davidwilliam/ga_engine/issues
-- Email: contact@davidwsilva.com
+- GitHub Issues: https://github.com/DataHubz/ga_engine/issues
+- Email: dsilva@datahubz.com
 
