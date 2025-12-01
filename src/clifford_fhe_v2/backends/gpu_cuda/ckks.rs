@@ -540,7 +540,12 @@ impl CudaCkksContext {
         Ok(t as u64)
     }
 
-    /// Find primitive N-th root of unity modulo q
+    /// Find primitive 2N-th root of unity modulo q
+    ///
+    /// CRITICAL: This must match the CPU implementation in ntt.rs exactly,
+    /// because keys are generated using CPU NTT and encryption/decryption
+    /// use CUDA NTT. If different psi values are used, the negacyclic
+    /// convolution results will be incompatible!
     fn find_primitive_root(n: usize, q: u64) -> Result<u64, String> {
         // For CKKS, we need a 2N-th primitive root
         // q - 1 must be divisible by 2N
@@ -549,15 +554,51 @@ impl CudaCkksContext {
             return Err(format!("q-1 = {} is not divisible by 2N = {}", q - 1, two_n));
         }
 
-        // Try small generators
-        for g in 2..100 {
-            // Compute g^((q-1)/2N) mod q
-            let exp = (q - 1) / two_n;
-            let root = Self::mod_exp(g, exp, q);
+        // MUST match CPU's candidate list exactly: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31]
+        // CPU's find_primitive_root in ntt.rs uses these candidates
+        let candidates: [u64; 11] = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31];
 
-            // Verify it's a primitive 2N-th root
-            if Self::mod_exp(root, n as u64, q) == q - 1 {  // root^N = -1 (mod q)
-                return Ok(root);
+        for &candidate in &candidates {
+            // Check if candidate is a quadratic non-residue (same as CPU)
+            // If g^((q-1)/2) == 1, it's NOT a generator - skip it
+            if Self::mod_exp(candidate, (q - 1) / 2, q) == 1 {
+                continue;
+            }
+
+            // Compute psi = g^((q-1)/2N) mod q
+            let exp = (q - 1) / two_n;
+            let psi = Self::mod_exp(candidate, exp, q);
+
+            // Verify: psi^N = -1 (mod q)
+            let psi_n = Self::mod_exp(psi, n as u64, q);
+            if psi_n != q - 1 {
+                continue;
+            }
+
+            // Verify: psi^(2N) = 1 (mod q)
+            let psi_2n = Self::mod_exp(psi, two_n, q);
+            if psi_2n == 1 {
+                return Ok(psi);
+            }
+        }
+
+        // Fallback: exhaustive search (matches CPU fallback)
+        for candidate in 2..q {
+            if Self::mod_exp(candidate, (q - 1) / 2, q) == 1 {
+                continue; // Not a quadratic non-residue
+            }
+
+            let exp = (q - 1) / two_n;
+            let psi = Self::mod_exp(candidate, exp, q);
+
+            let psi_n = Self::mod_exp(psi, n as u64, q);
+            if psi_n != q - 1 {
+                continue;
+            }
+
+            let psi_2n = Self::mod_exp(psi, two_n, q);
+            if psi_2n == 1 {
+                return Ok(psi);
             }
         }
 
