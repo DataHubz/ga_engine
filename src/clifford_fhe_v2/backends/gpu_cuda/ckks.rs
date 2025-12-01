@@ -10,7 +10,6 @@ use crate::clifford_fhe_v2::backends::cpu_optimized::rns::BarrettReducer;
 use crate::clifford_fhe_v2::params::CliffordFHEParams;
 use cudarc::driver::{CudaSlice, DeviceSlice, LaunchAsync, LaunchConfig};
 use cudarc::nvrtc::compile_ptx;
-use rustfft::num_complex::Complex;
 use std::sync::Arc;
 
 /// CUDA CKKS context for FHE operations on NVIDIA GPU
@@ -826,30 +825,56 @@ impl CudaCkksContext {
     }
 
     /// Encode floating-point values to polynomial (CPU operation)
+    ///
+    /// Uses the same Galois orbit-based canonical embedding as Metal backend and
+    /// the decode function, ensuring encode/decode are inverses.
     pub fn encode(&self, values: &[f64], scale: f64, level: usize) -> Result<CudaPlaintext, String> {
-        // Use CPU encoding (same as Metal implementation)
-        // This is not performance-critical for FHE
+        use std::f64::consts::PI;
 
-        let slots = self.params.n / 2;
+        let n = self.params.n;
+        let slots = n / 2;
         if values.len() > slots {
             return Err(format!("Too many values: {} (max {})", values.len(), slots));
         }
 
-        let mut complex_vals = vec![Complex::new(0.0, 0.0); slots];
+        let m = 2 * n; // Cyclotomic index M = 2N
+        let g = 5; // Generator for power-of-two cyclotomics
+
+        // Use Galois orbit order (same as decode)
+        let e = Self::orbit_order(n, g);
+
+        // Pad values to full slot count
+        let mut slot_vals = vec![0.0; slots];
         for (i, &val) in values.iter().enumerate() {
-            complex_vals[i] = Complex::new(val, 0.0);  // Do NOT pre-scale
+            slot_vals[i] = val;
         }
 
-        // Inverse canonical embedding
-        let coeffs = self.inverse_canonical_embedding(&complex_vals);
+        // Inverse canonical embedding using Galois orbit
+        // Formula: c[j] = (2/N) * Σ_{t=0}^{N/2-1} z[t] * cos(2π * e[t] * j / M)
+        let mut coeffs_float = vec![0.0; n];
 
-        // Round to integers and reduce mod each prime
+        for j in 0..n {
+            let mut sum = 0.0;
+
+            for t in 0..slots {
+                // w_t(j) = exp(-2πi * e[t] * j / M)
+                let angle = 2.0 * PI * (e[t] as f64) * (j as f64) / (m as f64);
+                let cos_val = angle.cos();
+
+                // For real slots: contribution is 2 * z[t] * cos(angle)
+                sum += slot_vals[t] * cos_val;
+            }
+
+            // Normalize by 2/N
+            coeffs_float[j] = (2.0 / n as f64) * sum;
+        }
+
+        // Scale and round to integers, then reduce mod each prime
         let num_primes = level + 1;
-        let mut poly = vec![0u64; self.params.n * num_primes];
+        let mut poly = vec![0u64; n * num_primes];
 
-        for coeff_idx in 0..self.params.n {
-            // Scale AFTER inverse embedding, then round
-            let val = (coeffs[coeff_idx].re * scale).round();
+        for coeff_idx in 0..n {
+            let val = (coeffs_float[coeff_idx] * scale).round();
             for prime_idx in 0..num_primes {
                 let q = self.params.moduli[prime_idx];
                 let val_mod = if val >= 0.0 {
@@ -864,42 +889,11 @@ impl CudaCkksContext {
 
         Ok(CudaPlaintext {
             poly,
-            n: self.params.n,
+            n,
             num_primes,
-            level: num_primes - 1,  // Level is num_primes - 1
+            level: num_primes - 1,
             scale,
         })
-    }
-
-    /// Inverse canonical embedding (iCKKS)
-    fn inverse_canonical_embedding(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        use rustfft::FftPlanner;
-
-        let slots = self.params.n / 2;
-        assert_eq!(values.len(), slots);
-
-        // Create conjugate pairs
-        let mut extended = vec![Complex::new(0.0, 0.0); self.params.n];
-        for i in 0..slots {
-            extended[i] = values[i];
-            extended[self.params.n - 1 - i] = values[i].conj();
-        }
-
-        // Inverse FFT
-        let mut planner = FftPlanner::new();
-        let ifft = planner.plan_fft_inverse(self.params.n);
-        ifft.process(&mut extended);
-
-        // rustfft's inverse FFT does NOT normalize (confirmed in v1/slot_encoding.rs:132)
-        // We need to normalize by 1/N to match CPU canonical embedding
-        // CPU manual DFT uses 2/N but with sum over N/2 slots (Hermitian symmetry)
-        // rustfft iFFT with full N conjugate pairs gives equivalent result with 1/N normalization
-        let normalization = 1.0 / self.params.n as f64;
-        for val in &mut extended {
-            *val *= normalization;
-        }
-
-        extended
     }
 
     /// Add two ciphertexts (CPU operation, simple)
@@ -2245,7 +2239,7 @@ impl CudaCkksContext {
     /// Canonical embedding decode (real values only)
     ///
     /// Performs forward canonical embedding to recover slot values from polynomial coefficients.
-    /// This is the inverse of inverse_canonical_embedding used in encode.
+    /// Uses the same Galois orbit ordering as encode(), ensuring they are inverses.
     fn canonical_embed_decode_real(coeffs: &[i64], scale: f64, n: usize) -> Vec<f64> {
         use std::f64::consts::PI;
 
