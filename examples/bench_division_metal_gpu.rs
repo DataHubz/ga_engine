@@ -199,7 +199,7 @@ fn main() -> Result<(), String> {
     println!();
 
     println!("╔════════════════════════════════════════════════════════════════════════╗");
-    println!("║  ✅ BENCHMARK COMPLETE - Ready for CRYPTO 2026 paper                  ║");
+    println!("║  ✅ BENCHMARK COMPLETE - Ready                  ║");
     println!("╚════════════════════════════════════════════════════════════════════════╝");
 
     Ok(())

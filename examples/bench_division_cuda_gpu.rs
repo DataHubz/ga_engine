@@ -73,7 +73,7 @@ fn main() {
     println!();
     println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     println!();
-    println!("✅ Implementation Status: READY FOR CRYPTO 2026 PAPER");
+    println!("✅ Implementation Status: READY");
     println!();
     println!("Next steps:");
     println!("  1. Test on RunPod with CUDA GPU");

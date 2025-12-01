@@ -209,6 +209,33 @@ kernel void rns_ntt_multiply_barrett(
     }
 }
 
+/// 128-bit modular multiplication: (a * b) % q
+/// Uses Russian peasant multiplication algorithm to avoid 128-bit overflow
+/// Required for 60-bit primes where a*b would exceed 64 bits
+inline ulong mul_mod_128_rescale(ulong a, ulong b, ulong q) {
+    // Use Russian peasant multiplication algorithm in modular arithmetic
+    // This avoids any 128-bit intermediate values
+    ulong result = 0;
+    a = a % q;  // Ensure a < q
+
+    while (b > 0) {
+        if (b & 1) {
+            // Add a to result (mod q)
+            result = result + a;
+            if (result >= q) result -= q;
+        }
+
+        // Double a (mod q)
+        a = a + a;
+        if (a >= q) a -= q;
+
+        // Halve b
+        b >>= 1;
+    }
+
+    return result;
+}
+
 /// RNS: Exact rescaling (divide by last prime) matching CPU rescale_polynomial
 ///
 /// CPU reference: rescale_ciphertext → rescale_polynomial
@@ -226,7 +253,7 @@ kernel void rns_ntt_multiply_barrett(
 /// It uses the same centered lift and modular arithmetic to ensure identical results.
 ///
 /// Inputs:
-///   poly_in          [buffer(0)] : n × num_primes_in (layout: prime-major, index = prime * n + coeff)
+///   poly_in          [buffer(0)] : n × num_primes_in (layout: COEFF-major, index = coeff * num_primes + prime)
 ///   poly_out         [buffer(1)] : n × (num_primes_in-1)
 ///   moduli           [buffer(2)] : length = num_primes_in
 ///   qlast_inv_mod_qi [buffer(3)] : length = num_primes_in-1, q_last^{-1} mod q_i
@@ -295,10 +322,8 @@ kernel void rns_exact_rescale(
 
         // new_val = diff * q_last^{-1} mod q_i
         // EXACTLY matches CPU line 523
-        // NOTE: For test primes (< 2^32) diff * inv_last fits in 64 bits.
-        // If you move to 60-bit primes, upgrade to Barrett/Montgomery reduction.
-        ulong prod = diff * inv_last;
-        ulong new_val = prod % q_i;
+        // Use 128-bit modular multiplication to avoid overflow with 60-bit primes
+        ulong new_val = mul_mod_128_rescale(diff, inv_last, q_i);
 
         poly_out[coeff_idx * num_primes_out + j] = new_val;  // COEFF-major layout
     }

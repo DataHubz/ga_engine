@@ -1560,6 +1560,63 @@ impl MetalCiphertext {
         }
     }
 
+    /// Modulus switch to a lower level (drop higher primes without rescaling)
+    ///
+    /// This is different from rescaling! Mod switch simply truncates the RNS
+    /// representation to fewer primes while keeping the same scale. This is used
+    /// to align ciphertext levels before operations.
+    ///
+    /// # Arguments
+    /// * `target_level` - The level to switch to (must be ≤ current level)
+    ///
+    /// # Returns
+    /// Ciphertext at the target level with same scale
+    pub fn mod_switch_to_level(&self, target_level: usize) -> Self {
+        if target_level == self.level {
+            return self.clone();
+        }
+
+        assert!(
+            target_level < self.level,
+            "Target level {} must be less than current level {}",
+            target_level,
+            self.level
+        );
+
+        let n = self.n;
+        let old_num_primes = self.level + 1;
+        let new_num_primes = target_level + 1;
+
+        // Truncate c0: keep only first (target_level + 1) primes for each coefficient
+        let mut new_c0 = vec![0u64; n * new_num_primes];
+        for coeff_idx in 0..n {
+            for prime_idx in 0..new_num_primes {
+                let old_idx = coeff_idx * old_num_primes + prime_idx;
+                let new_idx = coeff_idx * new_num_primes + prime_idx;
+                new_c0[new_idx] = self.c0[old_idx];
+            }
+        }
+
+        // Truncate c1: keep only first (target_level + 1) primes for each coefficient
+        let mut new_c1 = vec![0u64; n * new_num_primes];
+        for coeff_idx in 0..n {
+            for prime_idx in 0..new_num_primes {
+                let old_idx = coeff_idx * old_num_primes + prime_idx;
+                let new_idx = coeff_idx * new_num_primes + prime_idx;
+                new_c1[new_idx] = self.c1[old_idx];
+            }
+        }
+
+        Self {
+            c0: new_c0,
+            c1: new_c1,
+            n,
+            num_primes: new_num_primes,
+            level: target_level,
+            scale: self.scale,  // Scale stays the same for mod_switch
+        }
+    }
+
     /// Multiply ciphertext by plaintext using Metal GPU NTT
     ///
     /// Algorithm: (c0, c1) * pt = (c0 * pt, c1 * pt)
@@ -2483,6 +2540,26 @@ impl MetalCiphertext {
         // Result before relinearization: (ct0_ct0, ct1_temp, c2)
         let mut result_c0 = ct0_ct0;
         let mut result_c1 = ct1_temp;
+
+        // Debug: print values right after tensor product
+        if std::env::var("TENSOR_DEBUG").is_ok() {
+            println!("[TENSOR_DEBUG Metal] After tensor product (before relin):");
+            print!("  c0[0] across {} primes: ", num_primes);
+            for j in 0..num_primes {
+                print!("{} ", result_c0[0 * num_primes + j]);
+            }
+            println!();
+            print!("  c1[0] across {} primes: ", num_primes);
+            for j in 0..num_primes {
+                print!("{} ", result_c1[0 * num_primes + j]);
+            }
+            println!();
+            print!("  c2[0] across {} primes: ", num_primes);
+            for j in 0..num_primes {
+                print!("{} ", c2[0 * num_primes + j]);
+            }
+            println!();
+        }
 
         // Debug: print values before relinearization
         if std::env::var("RELIN_DEBUG").is_ok() {

@@ -144,21 +144,31 @@ impl MetalRelinKeys {
         let mut rlk0_coeff = Vec::with_capacity(num_digits);
         let mut rlk1_coeff = Vec::with_capacity(num_digits);
 
-        let base_big = 1u128 << base_w;
+        // CRITICAL FIX: Precompute B^t mod q for each prime and each digit
+        // This avoids u128 overflow when t is large (e.g., B^7 = 2^140 > 2^128)
+        // Matches CPU implementation in keys.rs lines 458-468
+        let base = 1u64 << base_w;
+        let mut bpow_t_mod_q = vec![vec![0u64; num_primes]; num_digits];
+        for (j, &q) in moduli.iter().enumerate() {
+            let q_u128 = q as u128;
+            let mut p = 1u128;  // B^0 = 1
+            for t in 0..num_digits {
+                bpow_t_mod_q[t][j] = (p % q_u128) as u64;
+                p = (p * (base as u128)) % q_u128;  // Incrementally compute B^(t+1) mod q
+            }
+        }
 
         for digit_idx in 0..num_digits {
-            // Compute B^digit_idx mod each q_i
-            let power = base_big.pow(digit_idx as u32);
-
             // Sample random polynomial a_i
             let a_i = Self::sample_uniform_poly(n, moduli);
 
             // Compute b_i = -a_i·s + e_i - B^digit_idx·s² (matches CPU EVK generation)
-            let b_i = Self::compute_rlk_component(
+            // Use precomputed B^t mod q values to avoid overflow
+            let b_i = Self::compute_rlk_component_rns(
                 &a_i,
                 sk,
                 &s_squared,
-                power,
+                &bpow_t_mod_q[digit_idx],  // B^t mod q for each prime
                 moduli,
                 n,
                 params.error_std,
@@ -323,26 +333,44 @@ impl MetalRelinKeys {
     }
 
     /// Multiply two secret keys in RNS representation: s1 · s2
+    ///
+    /// CRITICAL: Uses NTT-based polynomial multiplication, not coefficient-wise!
+    /// This matches CPU line 443: s_squared = self.multiply_polynomials(&sk.coeffs, &sk.coeffs, moduli)
     fn multiply_secret_keys(
         sk1: &SecretKey,
         sk2: &SecretKey,
         moduli: &[u64],
         n: usize,
     ) -> Result<Vec<RnsRepresentation>, String> {
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ntt::NttContext;
+
         let mut result = Vec::with_capacity(n);
 
-        for coeff_idx in 0..n {
-            let mut product_rns = Vec::with_capacity(moduli.len());
+        // For each prime, multiply the polynomials using NTT
+        let num_primes = moduli.len();
+        let mut products_per_prime = vec![vec![0u64; n]; num_primes];
 
-            for (prime_idx, &q) in moduli.iter().enumerate() {
-                let s1_val = sk1.coeffs[coeff_idx].values[prime_idx];
-                let s2_val = sk2.coeffs[coeff_idx].values[prime_idx];
-
-                // Multiply mod q
-                let product = ((s1_val as u128 * s2_val as u128) % q as u128) as u64;
-                product_rns.push(product);
+        for (prime_idx, &q) in moduli.iter().enumerate() {
+            // Extract polynomials for this prime
+            let mut s1_poly = vec![0u64; n];
+            let mut s2_poly = vec![0u64; n];
+            for coeff_idx in 0..n {
+                s1_poly[coeff_idx] = sk1.coeffs[coeff_idx].values[prime_idx];
+                s2_poly[coeff_idx] = sk2.coeffs[coeff_idx].values[prime_idx];
             }
 
+            // Multiply using NTT (negacyclic convolution)
+            let ntt_ctx = NttContext::new(n, q);
+            let product = ntt_ctx.multiply_polynomials(&s1_poly, &s2_poly);
+            products_per_prime[prime_idx] = product;
+        }
+
+        // Convert back to Vec<RnsRepresentation>
+        for coeff_idx in 0..n {
+            let mut product_rns = Vec::with_capacity(num_primes);
+            for prime_idx in 0..num_primes {
+                product_rns.push(products_per_prime[prime_idx][coeff_idx]);
+            }
             result.push(RnsRepresentation::new(product_rns, moduli.to_vec()));
         }
 
@@ -364,48 +392,79 @@ impl MetalRelinKeys {
         poly
     }
 
-    /// Compute rlk component: b = -a·s + e + power·s²
-    fn compute_rlk_component(
+    /// Compute rlk component: b = -B^t·s² + a·s + e
+    /// Uses per-prime precomputed B^t mod q values to avoid u128 overflow
+    fn compute_rlk_component_rns(
         a: &[u64],
         sk: &SecretKey,
         s_squared: &[RnsRepresentation],
-        power: u128,
+        power_mod_q: &[u64],  // B^t mod q for each prime (precomputed)
         moduli: &[u64],
         n: usize,
         error_std: f64,
     ) -> Result<Vec<u64>, String> {
         use rand_distr::{Distribution, Normal};
+        use crate::clifford_fhe_v2::backends::cpu_optimized::ntt::NttContext;
 
         let num_primes = moduli.len();
         let mut b = vec![0u64; n * num_primes];
         let mut rng = rand::thread_rng();
         let normal = Normal::new(0.0, error_std).unwrap();
 
-        for coeff_idx in 0..n {
-            for (prime_idx, &q) in moduli.iter().enumerate() {
-                // a·s (POSITIVE, matches CPU line 498: a_t_times_s)
-                let a_val = a[coeff_idx * num_primes + prime_idx];
-                let s_val = sk.coeffs[coeff_idx].values[prime_idx];
-                let a_times_s = ((a_val as u128 * s_val as u128) % q as u128) as u64;
+        // Compute a·s using NTT-based polynomial multiplication
+        // Matches CPU line 498: a_t_times_s = self.multiply_polynomials(&a_t, &sk.coeffs, moduli)
+        let mut a_times_s_flat = vec![0u64; n * num_primes];
+        for (prime_idx, &q) in moduli.iter().enumerate() {
+            // Extract polynomials for this prime
+            let mut a_poly = vec![0u64; n];
+            let mut s_poly = vec![0u64; n];
+            for coeff_idx in 0..n {
+                a_poly[coeff_idx] = a[coeff_idx * num_primes + prime_idx];
+                s_poly[coeff_idx] = sk.coeffs[coeff_idx].values[prime_idx];
+            }
 
-                // e (error)
-                let e_float: f64 = normal.sample(&mut rng);
-                let e = if e_float >= 0.0 {
-                    (e_float.round() as u64) % q
+            // Multiply using NTT (negacyclic convolution)
+            let ntt_ctx = NttContext::new(n, q);
+            let product = ntt_ctx.multiply_polynomials(&a_poly, &s_poly);
+
+            // Store result back in flat layout
+            for coeff_idx in 0..n {
+                a_times_s_flat[coeff_idx * num_primes + prime_idx] = product[coeff_idx];
+            }
+        }
+
+        // Now compute b = -B^t·s² + a·s + e per coefficient
+        // CRITICAL: Sample ONE error per coefficient, then reduce mod each prime
+        // (Matches CPU sample_error which samples one Gaussian value per coefficient)
+        for coeff_idx in 0..n {
+            // Sample error ONCE per coefficient (same integer for all primes)
+            let e_float: f64 = normal.sample(&mut rng);
+            let e_int: i64 = e_float.round() as i64;
+
+            for (prime_idx, &q) in moduli.iter().enumerate() {
+                let idx = coeff_idx * num_primes + prime_idx;
+
+                // a·s (from polynomial multiplication above)
+                let a_times_s = a_times_s_flat[idx];
+
+                // Convert error to mod q (same integer value for all primes)
+                let e = if e_int >= 0 {
+                    (e_int as u64) % q
                 } else {
-                    let abs_e = ((-e_float).round() as u64) % q;
-                    if abs_e == 0 { 0 } else { q - abs_e }
+                    let abs_e = (-e_int) as u64;
+                    let remainder = abs_e % q;
+                    if remainder == 0 { 0 } else { q - remainder }
                 };
 
-                // -power·s² mod q (negative, matches CPU line 499: neg_bt_s2)
+                // -B^t·s² mod q (negative, matches CPU line 499: neg_bt_s2)
                 let s2_val = s_squared[coeff_idx].values[prime_idx];
-                let power_mod_q = (power % q as u128) as u64;
-                let power_s2_pos = ((power_mod_q as u128 * s2_val as u128) % q as u128) as u64;
+                let bt_mod_q = power_mod_q[prime_idx];  // Use precomputed B^t mod q
+                let power_s2_pos = ((bt_mod_q as u128 * s2_val as u128) % q as u128) as u64;
                 let neg_power_s2 = if power_s2_pos == 0 { 0 } else { q - power_s2_pos };
 
-                // b = -power·s² + a·s + e (matches CPU line 496: evk0[t] = -B^t*s^2 + a_t*s + e_t)
+                // b = -B^t·s² + a·s + e (matches CPU line 496: evk0[t] = -B^t*s^2 + a_t*s + e_t)
                 let sum = (neg_power_s2 as u128 + a_times_s as u128 + e as u128) % q as u128;
-                b[coeff_idx * num_primes + prime_idx] = sum as u64;
+                b[idx] = sum as u64;
             }
         }
 
@@ -452,9 +511,10 @@ impl MetalRelinKeys {
             let q = ntt_ctx.q();
 
             // Extract coefficients for this prime
+            // Note: poly_flat has stride = num_primes_level (it was already extracted)
             let mut poly_prime = vec![0u64; n];
             for coeff_idx in 0..n {
-                poly_prime[coeff_idx] = poly_flat[coeff_idx * poly_flat.len() / n + prime_idx];
+                poly_prime[coeff_idx] = poly_flat[coeff_idx * num_primes_level + prime_idx];
             }
 
             // Forward NTT (for later asymmetric multiplication optimization)

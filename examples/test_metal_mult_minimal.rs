@@ -62,6 +62,14 @@ fn main() -> Result<(), String> {
     println!("After:  level={}, scale={}", cpu_ct_result.level, cpu_ct_result.scale);
 
     let cpu_pt_result = cpu_ctx.decrypt(&cpu_ct_result, &sk);
+
+    // Debug: print CPU plaintext coeffs
+    println!("CPU plaintext: level={}, scale={}", cpu_pt_result.level, cpu_pt_result.scale);
+    println!("CPU coeff[0] across {} primes:", cpu_pt_result.coeffs[0].values.len());
+    for (j, &val) in cpu_pt_result.coeffs[0].values.iter().enumerate() {
+        println!("  prime[{}]: {}", j, val);
+    }
+
     let cpu_result = cpu_ctx.decode(&cpu_pt_result);
 
     println!("CPU Result: {}", cpu_result[0]);
@@ -71,6 +79,17 @@ fn main() -> Result<(), String> {
     println!("--- Metal GPU Multiplication ---");
     let metal_pt_a = metal_ctx.encode(&[a])?;
     let metal_pt_b = metal_ctx.encode(&[b])?;
+
+    // Sanity check: encrypt and decrypt 'a' without any operations
+    let metal_ct_a_test = metal_ctx.encrypt(&metal_pt_a, &pk)?;
+    let metal_pt_a_test = metal_ctx.decrypt(&metal_ct_a_test, &sk)?;
+    println!("Sanity check - coeff[0] for a={} (encoded then enc/dec):", a);
+    for j in 0..metal_pt_a_test.num_primes {
+        println!("  prime[{}]: {}", j, metal_pt_a_test.coeffs[0 * metal_pt_a_test.num_primes + j]);
+    }
+    let a_recovered = metal_ctx.decode(&metal_pt_a_test)?;
+    println!("Sanity check - decoded a={}, error={:.2e}\n", a_recovered[0], (a_recovered[0] - a).abs());
+
     let metal_ct_a = metal_ctx.encrypt(&metal_pt_a, &pk)?;
     let metal_ct_b = metal_ctx.encrypt(&metal_pt_b, &pk)?;
 
@@ -79,8 +98,19 @@ fn main() -> Result<(), String> {
     let metal_ct_result = metal_ct_a.multiply(&metal_ct_b, &metal_relin_keys, &metal_ctx)?;
 
     println!("After:  level={}, scale={}", metal_ct_result.level, metal_ct_result.scale);
+    println!("After:  num_primes={}, c0.len()={}, c1.len()={}",
+        metal_ct_result.num_primes, metal_ct_result.c0.len(), metal_ct_result.c1.len());
 
     let metal_pt_result = metal_ctx.decrypt(&metal_ct_result, &sk)?;
+    println!("Decrypted plaintext: num_primes={}, coeffs.len()={}, scale={}",
+        metal_pt_result.num_primes, metal_pt_result.coeffs.len(), metal_pt_result.scale);
+    println!("First few coeffs (prime 0): {:?}",
+        &metal_pt_result.coeffs[0..4.min(metal_pt_result.coeffs.len())]);
+    println!("coeff[0] across {} primes:", metal_pt_result.num_primes);
+    for j in 0..metal_pt_result.num_primes {
+        println!("  prime[{}]: {}", j, metal_pt_result.coeffs[0 * metal_pt_result.num_primes + j]);
+    }
+
     let metal_result = metal_ctx.decode(&metal_pt_result)?;
 
     println!("Metal Result: {}", metal_result[0]);

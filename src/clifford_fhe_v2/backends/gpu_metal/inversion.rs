@@ -129,20 +129,11 @@ pub fn newton_raphson_inverse_metal(
     for iter_idx in 0..iterations {
         println!("  Newton-Raphson iteration {}/{}...", iter_idx + 1, iterations);
 
-        // Match levels if needed: rescale ct_a to ct_xn's level
-        while ct_a.level > ct_xn.level {
-            println!("    Rescaling ct_a from level {} to {}", ct_a.level, ct_a.level - 1);
-            let rescaled_c0 = ctx.exact_rescale_gpu(&ct_a.c0, ct_a.level)?;
-            let rescaled_c1 = ctx.exact_rescale_gpu(&ct_a.c1, ct_a.level)?;
-            let new_scale = ct_a.scale / params.moduli[ct_a.level] as f64;
-            ct_a = MetalCiphertext {
-                c0: rescaled_c0,
-                c1: rescaled_c1,
-                n: ct_a.n,
-                num_primes: ct_a.level,  // level drops by 1
-                level: ct_a.level - 1,
-                scale: new_scale,
-            };
+        // Match levels if needed: mod_switch ct_a to ct_xn's level
+        // Note: mod_switch drops primes WITHOUT dividing - keeps scale same
+        if ct_a.level > ct_xn.level {
+            println!("    Mod-switching ct_a from level {} to {}", ct_a.level, ct_xn.level);
+            ct_a = ct_a.mod_switch_to_level(ct_xn.level);
         }
 
         // Step 1: Compute a · x_n (ct_a × ct_xn, both at same level now)
@@ -159,19 +150,10 @@ pub fn newton_raphson_inverse_metal(
         println!("    Computed 2 - a·x_n (level {})", ct_two_minus_axn.level);
 
         // Step 4: Match ct_xn level with ct_two_minus_axn before multiplication
-        while ct_xn.level > ct_two_minus_axn.level {
-            println!("    Rescaling ct_xn from level {} to {}", ct_xn.level, ct_xn.level - 1);
-            let rescaled_c0 = ctx.exact_rescale_gpu(&ct_xn.c0, ct_xn.level)?;
-            let rescaled_c1 = ctx.exact_rescale_gpu(&ct_xn.c1, ct_xn.level)?;
-            let new_scale = ct_xn.scale / params.moduli[ct_xn.level] as f64;
-            ct_xn = MetalCiphertext {
-                c0: rescaled_c0,
-                c1: rescaled_c1,
-                n: ct_xn.n,
-                num_primes: ct_xn.level,
-                level: ct_xn.level - 1,
-                scale: new_scale,
-            };
+        // Note: mod_switch drops primes WITHOUT dividing - keeps scale same
+        if ct_xn.level > ct_two_minus_axn.level {
+            println!("    Mod-switching ct_xn from level {} to {}", ct_xn.level, ct_two_minus_axn.level);
+            ct_xn = ct_xn.mod_switch_to_level(ct_two_minus_axn.level);
         }
 
         // Step 5: Compute x_{n+1} = x_n · (2 - a·x_n)
@@ -247,22 +229,13 @@ pub fn scalar_division_metal(
     )?;
 
     // Step 2: Match numerator level with inverse before multiplication
-    let mut ct_num = numerator.clone();
-    while ct_num.level > ct_inv.level {
-        println!("Step 2: Rescaling numerator from level {} to {}", ct_num.level, ct_num.level - 1);
-        let params = &ctx.params;
-        let rescaled_c0 = ctx.exact_rescale_gpu(&ct_num.c0, ct_num.level)?;
-        let rescaled_c1 = ctx.exact_rescale_gpu(&ct_num.c1, ct_num.level)?;
-        let new_scale = ct_num.scale / params.moduli[ct_num.level] as f64;
-        ct_num = MetalCiphertext {
-            c0: rescaled_c0,
-            c1: rescaled_c1,
-            n: ct_num.n,
-            num_primes: ct_num.level,
-            level: ct_num.level - 1,
-            scale: new_scale,
-        };
-    }
+    // Note: mod_switch drops primes WITHOUT dividing - keeps scale same
+    let ct_num = if numerator.level > ct_inv.level {
+        println!("Step 2: Mod-switching numerator from level {} to {}", numerator.level, ct_inv.level);
+        numerator.mod_switch_to_level(ct_inv.level)
+    } else {
+        numerator.clone()
+    };
 
     // Step 3: Multiply numerator by 1/denominator to get numerator/denominator
     println!("Step 3: Multiplying numerator by (1/denominator)...");

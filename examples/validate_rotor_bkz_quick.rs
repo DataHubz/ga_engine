@@ -147,7 +147,7 @@ fn main() {
         println!("  ✓ Quality preserved on all tests");
         println!("  ✓ Significant speedup: {:.2}× average", avg_speedup);
         println!();
-        println!("Ready for CRYPTO 2026 paper!");
+        println!("Ready!");
     } else if all_quality_preserved {
         println!("⚠ PARTIAL PASS");
         println!();

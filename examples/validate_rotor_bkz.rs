@@ -357,7 +357,7 @@ fn main() {
         println!("  ✓ Scalable (speedup increases with dimension)");
         println!("  ✓ Robust (works on multiple lattice types)");
         println!();
-        println!("This is a LEGITIMATE implementation ready for CRYPTO 2026!");
+        println!("Ready!");
     } else if pass_count >= 3 {
         println!("⚠ MOSTLY PASSED ({}/{} checks)", pass_count, total_checks);
         println!();
