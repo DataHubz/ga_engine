@@ -1364,29 +1364,27 @@ impl CudaCkksContext {
         let mut gpu_data = self.device.device.htod_copy(data.to_vec())
             .map_err(|e| format!("Failed to copy data to GPU: {:?}", e))?;
 
-        // Bit-reversal permutation (TODO: batch this too in future optimization)
-        // For now, we apply bit-reversal sequentially to each prime's data
-        for prime_idx in 0..num_primes {
-            let func_bit_reverse = self.ntt_contexts[0].device.device.get_func("ntt_module", "bit_reverse_permutation")
-                .ok_or("Failed to get bit_reverse_permutation function")?;
+        // Batched bit-reversal permutation (single kernel launch for all primes!)
+        let func_bit_reverse = self.ntt_contexts[0].device.device.get_func("ntt_module", "bit_reverse_permutation_batched")
+            .ok_or("Failed to get bit_reverse_permutation_batched function")?;
 
-            let threads_per_block = 256;
-            let num_blocks = (n / 2 + threads_per_block - 1) / threads_per_block;
-            let cfg = LaunchConfig {
-                grid_dim: (num_blocks as u32, 1, 1),
-                block_dim: (threads_per_block as u32, 1, 1),
-                shared_mem_bytes: 0,
-            };
+        let threads_per_block = 256;
+        let num_blocks = (n + threads_per_block - 1) / threads_per_block;  // Use n, not n/2!
 
-            // Create a view into this prime's data
-            let offset = prime_idx * n;
-            let gpu_data_view = gpu_data.slice(offset..(offset + n));
+        let cfg = LaunchConfig {
+            grid_dim: (num_blocks as u32, num_primes as u32, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
 
-            unsafe {
-                func_bit_reverse.launch(cfg, (&gpu_data_view, n as u32, log_n as u32))
-                    .map_err(|e| format!("Bit-reversal failed: {:?}", e))?;
-            }
+        unsafe {
+            func_bit_reverse.launch(cfg, (&mut gpu_data, n as u32, log_n as u32, num_primes as u32))
+                .map_err(|e| format!("Batched bit-reversal failed: {:?}", e))?;
         }
+
+        // CRITICAL: Synchronize after bit-reversal before starting NTT stages
+        self.device.device.synchronize()
+            .map_err(|e| format!("Sync after bit-reversal failed: {:?}", e))?;
 
         // Batched NTT stages
         let mut m = 1usize;
@@ -1416,6 +1414,11 @@ impl CudaCkksContext {
                 ))
                 .map_err(|e| format!("Batched NTT stage {} failed: {:?}", stage, e))?;
             }
+
+            // CRITICAL: Synchronize after each stage
+            self.device.device.synchronize()
+                .map_err(|e| format!("Sync after forward NTT stage {} failed: {:?}", stage, e))?;
+
             m *= 2;
         }
 
@@ -1480,31 +1483,45 @@ impl CudaCkksContext {
                 ))
                 .map_err(|e| format!("Batched inverse NTT stage {} failed: {:?}", stage, e))?;
             }
+
+            // CRITICAL: Synchronize after each stage
+            self.device.device.synchronize()
+                .map_err(|e| format!("Sync after inverse NTT stage {} failed: {:?}", stage, e))?;
+
             m /= 2;
         }
 
-        // Final scaling by n^(-1) for each prime
-        for prime_idx in 0..num_primes {
-            let ntt_ctx = &self.ntt_contexts[prime_idx];
-            let func_scalar = ntt_ctx.device.device.get_func("ntt_module", "ntt_scalar_multiply")
-                .ok_or("Failed to get ntt_scalar_multiply function")?;
+        // Step 2: Bit-reversal + scaling by n^(-1) at the END
+        // This is CRITICAL - the DIF algorithm produces output in bit-reversed order
+        // Upload n_inv values for all primes
+        let n_inv_values: Vec<u64> = (0..num_primes)
+            .map(|i| self.ntt_contexts[i].n_inv)
+            .collect();
+        let gpu_n_inv = self.device.device.htod_copy(n_inv_values)
+            .map_err(|e| format!("Failed to upload n_inv values: {:?}", e))?;
 
-            let threads_per_block = 256;
-            let num_blocks = (n + threads_per_block - 1) / threads_per_block;
-            let cfg = LaunchConfig {
-                grid_dim: (num_blocks as u32, 1, 1),
-                block_dim: (threads_per_block as u32, 1, 1),
-                shared_mem_bytes: 0,
-            };
+        let func_final = self.ntt_contexts[0].device.device.get_func("ntt_module", "ntt_inverse_final_batched")
+            .ok_or("Failed to get ntt_inverse_final_batched function")?;
 
-            // Create a view into this prime's data
-            let offset = prime_idx * n;
-            let gpu_data_view = gpu_data.slice(offset..(offset + n));
+        let threads_per_block = 256;
+        let num_blocks = (n + threads_per_block - 1) / threads_per_block;
 
-            unsafe {
-                func_scalar.launch(cfg, (&gpu_data_view, ntt_ctx.n_inv, n as u32, ntt_ctx.q))
-                    .map_err(|e| format!("Scalar multiply failed: {:?}", e))?;
-            }
+        let cfg = LaunchConfig {
+            grid_dim: (num_blocks as u32, num_primes as u32, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        unsafe {
+            func_final.launch(cfg, (
+                &mut gpu_data,
+                &gpu_n_inv,
+                gpu_moduli,
+                n as u32,
+                num_primes as u32,
+                log_n as u32,
+            ))
+            .map_err(|e| format!("Inverse NTT final step failed: {:?}", e))?;
         }
 
         // Copy result back
@@ -1617,27 +1634,27 @@ impl CudaCkksContext {
         let gpu_moduli = self.gpu_moduli.as_ref()
             .ok_or("GPU moduli not initialized")?;
 
-        // Bit-reversal permutation (needs n threads, not n/2!)
-        for prime_idx in 0..num_primes {
-            let func_bit_reverse = self.ntt_contexts[0].device.device.get_func("ntt_module", "bit_reverse_permutation")
-                .ok_or("Failed to get bit_reverse_permutation function")?;
+        // Batched bit-reversal permutation (single kernel launch for all primes!)
+        let func_bit_reverse = self.ntt_contexts[0].device.device.get_func("ntt_module", "bit_reverse_permutation_batched")
+            .ok_or("Failed to get bit_reverse_permutation_batched function")?;
 
-            let threads_per_block = 256;
-            let num_blocks = (n + threads_per_block - 1) / threads_per_block;  // Use n, not n/2!
-            let cfg = LaunchConfig {
-                grid_dim: (num_blocks as u32, 1, 1),
-                block_dim: (threads_per_block as u32, 1, 1),
-                shared_mem_bytes: 0,
-            };
+        let threads_per_block = 256;
+        let num_blocks = (n + threads_per_block - 1) / threads_per_block;
 
-            let offset = prime_idx * n;
-            let gpu_data_view = gpu_data.slice(offset..(offset + n));
+        let cfg = LaunchConfig {
+            grid_dim: (num_blocks as u32, num_primes as u32, 1),
+            block_dim: (threads_per_block as u32, 1, 1),
+            shared_mem_bytes: 0,
+        };
 
-            unsafe {
-                func_bit_reverse.launch(cfg, (&gpu_data_view, n as u32, log_n as u32))
-                    .map_err(|e| format!("Bit-reversal failed: {:?}", e))?;
-            }
+        unsafe {
+            func_bit_reverse.launch(cfg, (&mut *gpu_data, n as u32, log_n as u32, num_primes as u32))
+                .map_err(|e| format!("Batched bit-reversal failed: {:?}", e))?;
         }
+
+        // CRITICAL: Synchronize after bit-reversal before starting NTT stages
+        self.device.device.synchronize()
+            .map_err(|e| format!("Sync after bit-reversal failed: {:?}", e))?;
 
         // Batched NTT stages
         let mut m = 1usize;
@@ -1666,6 +1683,12 @@ impl CudaCkksContext {
                 ))
                 .map_err(|e| format!("Batched NTT stage {} failed: {:?}", stage, e))?;
             }
+
+            // CRITICAL: Synchronize after each stage to ensure all threads complete
+            // before the next stage reads/writes the same memory locations
+            self.device.device.synchronize()
+                .map_err(|e| format!("Sync after forward NTT stage {} failed: {:?}", stage, e))?;
+
             m *= 2;
         }
 
@@ -1721,6 +1744,11 @@ impl CudaCkksContext {
                 ))
                 .map_err(|e| format!("Batched inverse NTT stage {} failed: {:?}", stage, e))?;
             }
+
+            // CRITICAL: Synchronize after each stage to ensure all threads complete
+            // before the next stage reads/writes the same memory locations
+            self.device.device.synchronize()
+                .map_err(|e| format!("Sync after inverse NTT stage {} failed: {:?}", stage, e))?;
         }
 
         // Step 2: Bit-reversal + scaling by n^(-1) at the END

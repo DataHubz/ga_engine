@@ -335,6 +335,40 @@ __global__ void ntt_scalar_multiply(
  */
 
 /**
+ * Batched bit-reversal permutation - Process all primes in parallel
+ *
+ * Input layout: data[prime_idx * n + coeff_idx] (flat RNS)
+ * Grid: (n_blocks, num_primes, 1) - launch with n threads per prime
+ */
+__global__ void bit_reverse_permutation_batched(
+    unsigned long long* data,
+    unsigned int n,
+    unsigned int log_n,
+    unsigned int num_primes
+) {
+    unsigned int gid = blockIdx.x * blockDim.x + threadIdx.x;
+    unsigned int prime_idx = blockIdx.y;
+
+    if (gid >= n || prime_idx >= num_primes) return;
+
+    // Compute bit-reversed index
+    unsigned int reversed = 0;
+    unsigned int temp = gid;
+    for (unsigned int i = 0; i < log_n; i++) {
+        reversed = (reversed << 1) | (temp & 1);
+        temp >>= 1;
+    }
+
+    // Only swap if gid < reversed to avoid double-swapping
+    if (gid < reversed) {
+        unsigned int prime_offset = prime_idx * n;
+        unsigned long long tmp = data[prime_offset + gid];
+        data[prime_offset + gid] = data[prime_offset + reversed];
+        data[prime_offset + reversed] = tmp;
+    }
+}
+
+/**
  * Batched Forward NTT - Process all primes in parallel
  *
  * Input layout: data[prime_idx * n + coeff_idx] (flat RNS)

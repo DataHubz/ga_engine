@@ -38,6 +38,7 @@ impl CudaNttContext {
 
         device.device.load_ptx(ptx, "ntt_module", &[
             "bit_reverse_permutation",
+            "bit_reverse_permutation_batched",
             "ntt_forward",
             "ntt_inverse",
             "ntt_inverse_final",
