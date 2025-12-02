@@ -83,17 +83,23 @@ pub fn multiply_ciphertexts_gpu(
     // Step 3: Convert from flat layout back to strided layout
     // CRITICAL: CudaCiphertext expects strided layout: c[coeff_idx * num_primes + prime_idx]
     // But relinearization returns flat layout: c[prime_idx * n + coeff_idx]
+    //
+    // IMPORTANT: Use num_active_primes as BOTH stride AND num_primes!
+    // Metal uses num_primes = level + 1 (actual active primes), not the max number.
+    // Using ct1.num_primes (max=30) when only num_active_primes (e.g. 22) are valid
+    // causes garbage data to be read during rescaling.
     let num_active_primes = ct1.level + 1;
-    let c0_relin = ctx.flat_to_strided(&c0_relin_flat, ct1.n, ct1.num_primes, num_active_primes);
-    let c1_relin = ctx.flat_to_strided(&c1_relin_flat, ct1.n, ct1.num_primes, num_active_primes);
+    let c0_relin = ctx.flat_to_strided(&c0_relin_flat, ct1.n, num_active_primes, num_active_primes);
+    let c1_relin = ctx.flat_to_strided(&c1_relin_flat, ct1.n, num_active_primes, num_active_primes);
 
     // Step 4: Create intermediate ciphertext with doubled scale
+    // Use num_active_primes as num_primes (matches Metal behavior)
     let result_scale = ct1.scale * ct2.scale;
     let ct_product = CudaCiphertext {
         c0: c0_relin,
         c1: c1_relin,
         n: ct1.n,
-        num_primes: ct1.num_primes,
+        num_primes: num_active_primes,  // FIXED: Use active primes, not max primes
         level: ct1.level,
         scale: result_scale,
     };
