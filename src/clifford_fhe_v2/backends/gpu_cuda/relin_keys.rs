@@ -948,6 +948,16 @@ impl CudaRelinKeys {
     pub fn modulus(&self, prime_idx: usize) -> u64 {
         self.params.moduli[prime_idx]
     }
+
+    /// Get reference to the relinearization key
+    pub fn get_relin_key(&self) -> &RelinearizationKey {
+        self.relin_key.as_ref().expect("Relin key not initialized")
+    }
+
+    /// Get gadget decomposition parameters
+    pub fn gadget_params(&self) -> (u32, usize) {
+        (self.base_w as u32, self.dnum)
+    }
 }
 
 #[cfg(test)]
