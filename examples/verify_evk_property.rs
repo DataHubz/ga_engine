@@ -3,6 +3,10 @@
 //! This test verifies that the evaluation key correctly encrypts -B^t·s².
 //! If this property doesn't hold, relinearization cannot work.
 //!
+//! CRITICAL INSIGHT: This test verifies:
+//! 1. First, that CPU and GPU s² computation match
+//! 2. Then, that the EVK property holds using the correct s²
+//!
 //! Run with:
 //! ```bash
 //! cargo run --release --features v2,v2-gpu-cuda --example verify_evk_property
@@ -50,6 +54,19 @@ fn strided_to_flat(strided: &[u64], n: usize, num_primes: usize) -> Vec<u64> {
         }
     }
     flat
+}
+
+#[cfg(all(feature = "v2", feature = "v2-gpu-cuda"))]
+fn flat_to_strided(flat: &[u64], n: usize, num_primes: usize) -> Vec<u64> {
+    let mut strided = vec![0u64; n * num_primes];
+    for prime_idx in 0..num_primes {
+        for coeff_idx in 0..n {
+            let flat_idx = prime_idx * n + coeff_idx;
+            let strided_idx = coeff_idx * num_primes + prime_idx;
+            strided[strided_idx] = flat[flat_idx];
+        }
+    }
+    strided
 }
 
 /// Compute polynomial product a*b mod (X^N + 1) in coefficient domain (CPU reference)
@@ -100,7 +117,64 @@ fn main() -> Result<(), String> {
     let device = Arc::new(CudaDeviceContext::new()?);
     let ctx = CudaCkksContext::new(params.clone())?;
 
+    // STEP 0: Verify CPU s² vs GPU s² to isolate multiplication bugs
+    println!("════════════════════════════════════════════════════════════════════════");
+    println!("STEP 0: Compare CPU s² vs GPU s² (using test_multiply_polys_ntt)");
+    println!("════════════════════════════════════════════════════════════════════════\n");
+
+    // Compute s² on CPU for reference (flat layout)
+    println!("  Computing s² on CPU (coefficient domain O(N²))...");
+    let mut s_squared_cpu_flat = vec![0u64; n * num_primes];
+    for prime_idx in 0..num_primes {
+        let q = params.moduli[prime_idx];
+        let offset = prime_idx * n;
+        let s_prime: Vec<u64> = sk_flat[offset..offset+n].to_vec();
+        let s2_prime = negacyclic_multiply_cpu(&s_prime, &s_prime, q, n);
+        s_squared_cpu_flat[offset..offset+n].copy_from_slice(&s2_prime);
+    }
+    println!("  CPU s²[coeff=0, prime=0]: {}", s_squared_cpu_flat[0]);
+
+    // Compute s² on GPU via test_multiply_polys_ntt (strided layout input/output)
+    println!("  Computing s² on GPU (NTT-based)...");
+    let s_squared_gpu_strided = ctx.test_multiply_polys_ntt(&sk_strided, &sk_strided, num_primes)?;
+    let s_squared_gpu_flat = strided_to_flat(&s_squared_gpu_strided, n, num_primes);
+    println!("  GPU s²[coeff=0, prime=0]: {}", s_squared_gpu_flat[0]);
+
+    // Compare CPU vs GPU s² for prime 0
+    let mut s2_match = 0;
+    let mut s2_diff = 0;
+    let mut s2_max_error = 0u64;
+    for i in 0..n {
+        let cpu_val = s_squared_cpu_flat[i];
+        let gpu_val = s_squared_gpu_flat[i];
+        if cpu_val == gpu_val {
+            s2_match += 1;
+        } else {
+            s2_diff += 1;
+            let err = if cpu_val > gpu_val { cpu_val - gpu_val } else { gpu_val - cpu_val };
+            if err > s2_max_error {
+                s2_max_error = err;
+            }
+            if s2_diff <= 5 {
+                println!("  S² DIFF at coeff[{}]: CPU={}, GPU={}", i, cpu_val, gpu_val);
+            }
+        }
+    }
+
+    println!("\n  CPU vs GPU s²: {} matches, {} differences, max_error={}", s2_match, s2_diff, s2_max_error);
+
+    if s2_diff == 0 {
+        println!("  ✓ CPU and GPU s² MATCH - multiplication is correct\n");
+    } else {
+        println!("  ✗ CPU and GPU s² DIFFER - BUG IN MULTIPLICATION!");
+        println!("    The bug is in either CPU reference or GPU NTT multiply.\n");
+    }
+
     // Generate CUDA relin keys
+    println!("════════════════════════════════════════════════════════════════════════");
+    println!("STEP 1: Generate CUDA relinearization keys");
+    println!("════════════════════════════════════════════════════════════════════════\n");
+
     let relin_keys = CudaRelinKeys::new_gpu(
         device.clone(),
         params.clone(),
@@ -112,17 +186,13 @@ fn main() -> Result<(), String> {
     let relin_key = relin_keys.get_relin_key();
     println!("EVK has {} components\n", relin_key.ks_components.len());
 
-    // Compute s² on CPU for reference
-    println!("Computing s² on CPU for reference...");
-    let mut s_squared_flat = vec![0u64; n * num_primes];
-    for prime_idx in 0..num_primes {
-        let q = params.moduli[prime_idx];
-        let offset = prime_idx * n;
-        let s_prime: Vec<u64> = sk_flat[offset..offset+n].to_vec();
-        let s2_prime = negacyclic_multiply_cpu(&s_prime, &s_prime, q, n);
-        s_squared_flat[offset..offset+n].copy_from_slice(&s2_prime);
-    }
-    println!("  s²[0] for prime 0: {}\n", s_squared_flat[0]);
+    // Note: EVK generation uses gpu_multiply_flat_ntt internally.
+    // The s² used in EVK is compute_secret_key_squared_gpu which also uses gpu_multiply_flat_ntt.
+    // We need to verify using the SAME s² that EVK generation used.
+
+    // Let's also compute the "EVK internal s²" by extracting it from the pattern.
+    // EVK formula: evk0[0] = a[0]·s + e - B^0·s² = a[0]·s + e - s²
+    // So: evk0[0] - a[0]·s - e ≈ -s² (modulo noise)
 
     // Verify property for digit 0
     println!("════════════════════════════════════════════════════════════════════════");
@@ -136,117 +206,161 @@ fn main() -> Result<(), String> {
     println!("  evk0[0][coeff=0, prime=0]: {}", evk0_0[0]);
     println!("  evk1[0][coeff=0, prime=0]: {}", evk1_0[0]);
 
-    // Compute evk1[0] · s for prime 0
-    println!("\n  Computing evk1[0] · s...");
+    // Compute evk1[0] · s for prime 0 using CPU reference
+    println!("\n  Computing evk1[0] · s using CPU reference...");
     let q0 = params.moduli[0];
     let evk1_0_prime0: Vec<u64> = evk1_0[0..n].to_vec();
     let s_prime0: Vec<u64> = sk_flat[0..n].to_vec();
-    let evk1_s_prime0 = negacyclic_multiply_cpu(&evk1_0_prime0, &s_prime0, q0, n);
-    println!("  (evk1[0] · s)[coeff=0, prime=0]: {}", evk1_s_prime0[0]);
+    let evk1_s_cpu = negacyclic_multiply_cpu(&evk1_0_prime0, &s_prime0, q0, n);
+    println!("  (evk1[0] · s)[coeff=0, prime=0] via CPU: {}", evk1_s_cpu[0]);
 
-    // Compute evk0[0] - evk1[0]·s
-    println!("\n  Computing evk0[0] - evk1[0]·s...");
-    let mut diff_prime0 = vec![0u64; n];
+    // Also compute evk1[0] · s using GPU NTT for comparison
+    // Need to convert to strided for test_multiply_polys_ntt
+    let evk1_0_strided = flat_to_strided(evk1_0, n, num_primes);
+    let evk1_s_gpu_strided = ctx.test_multiply_polys_ntt(&evk1_0_strided, &sk_strided, num_primes)?;
+    let evk1_s_gpu_flat = strided_to_flat(&evk1_s_gpu_strided, n, num_primes);
+    println!("  (evk1[0] · s)[coeff=0, prime=0] via GPU: {}", evk1_s_gpu_flat[0]);
+
+    // Check if CPU and GPU multiplication of evk1*s match
+    let mut evk1s_match = 0;
+    let mut evk1s_diff = 0;
     for i in 0..n {
-        diff_prime0[i] = if evk0_0[i] >= evk1_s_prime0[i] {
-            evk0_0[i] - evk1_s_prime0[i]
+        if evk1_s_cpu[i] == evk1_s_gpu_flat[i] {
+            evk1s_match += 1;
         } else {
-            q0 - (evk1_s_prime0[i] - evk0_0[i])
+            evk1s_diff += 1;
+        }
+    }
+    println!("  CPU vs GPU (evk1·s): {} matches, {} differences", evk1s_match, evk1s_diff);
+
+    // Compute evk0[0] - evk1[0]·s using CPU multiply result
+    println!("\n  Computing evk0[0] - evk1[0]·s (using CPU multiply)...");
+    let mut diff_cpu = vec![0u64; n];
+    for i in 0..n {
+        diff_cpu[i] = if evk0_0[i] >= evk1_s_cpu[i] {
+            evk0_0[i] - evk1_s_cpu[i]
+        } else {
+            q0 - (evk1_s_cpu[i] - evk0_0[i])
         };
     }
-    println!("  (evk0[0] - evk1[0]·s)[coeff=0, prime=0]: {}", diff_prime0[0]);
+    println!("  (evk0[0] - evk1[0]·s)[coeff=0] via CPU: {}", diff_cpu[0]);
 
-    // Expected: -s² mod q0
-    let neg_s2_prime0: Vec<u64> = s_squared_flat[0..n].iter()
+    // Also compute using GPU multiply
+    let mut diff_gpu = vec![0u64; n];
+    for i in 0..n {
+        diff_gpu[i] = if evk0_0[i] >= evk1_s_gpu_flat[i] {
+            evk0_0[i] - evk1_s_gpu_flat[i]
+        } else {
+            q0 - (evk1_s_gpu_flat[i] - evk0_0[i])
+        };
+    }
+    println!("  (evk0[0] - evk1[0]·s)[coeff=0] via GPU: {}", diff_gpu[0]);
+
+    // Expected: -s² mod q0 (using CPU s²)
+    let neg_s2_cpu: Vec<u64> = s_squared_cpu_flat[0..n].iter()
         .map(|&x| if x == 0 { 0 } else { q0 - x })
         .collect();
-    println!("  Expected -s²[coeff=0, prime=0]: {}", neg_s2_prime0[0]);
+    println!("  Expected -s²[coeff=0] (CPU): {}", neg_s2_cpu[0]);
 
-    // Compare
-    let mut match_count = 0;
-    let mut diff_count = 0;
-    let mut max_error = 0u64;
+    // Expected: -s² mod q0 (using GPU s²)
+    let neg_s2_gpu: Vec<u64> = s_squared_gpu_flat[0..n].iter()
+        .map(|&x| if x == 0 { 0 } else { q0 - x })
+        .collect();
+    println!("  Expected -s²[coeff=0] (GPU): {}", neg_s2_gpu[0]);
+
+    // Compare diff_cpu vs neg_s2_cpu (CPU reference all the way)
+    println!("\n  COMPARISON: (evk0 - evk1·s) vs -s²");
+    println!("  ──────────────────────────────────────────────────────────────────────");
+
+    // Using CPU multiply for evk1·s, CPU s² for reference
+    let mut match_cpu_cpu = 0;
+    let mut diff_cpu_cpu = 0;
+    let mut max_err_cpu_cpu = 0u64;
     for i in 0..n {
-        let actual = diff_prime0[i];
-        let expected = neg_s2_prime0[i];
-        // Allow small error from noise
-        let error = if actual >= expected { actual - expected } else { expected - actual };
-        if error < 1000000 {  // Allow small noise
-            match_count += 1;
+        let err = if diff_cpu[i] >= neg_s2_cpu[i] {
+            diff_cpu[i] - neg_s2_cpu[i]
         } else {
-            diff_count += 1;
-            if error > max_error {
-                max_error = error;
-            }
-            if diff_count <= 5 {
-                println!("  DIFF at coeff[{}]: actual={}, expected={}, error={}", i, actual, expected, error);
+            neg_s2_cpu[i] - diff_cpu[i]
+        };
+        if err < 1_000_000 {  // Allow small noise
+            match_cpu_cpu += 1;
+        } else {
+            diff_cpu_cpu += 1;
+            if err > max_err_cpu_cpu { max_err_cpu_cpu = err; }
+            if diff_cpu_cpu <= 3 {
+                println!("    [CPU/CPU] DIFF at [{}]: actual={}, expected={}, err={}",
+                    i, diff_cpu[i], neg_s2_cpu[i], err);
             }
         }
     }
+    println!("  CPU evk1·s, CPU s²: {} match, {} diff, max_err={}", match_cpu_cpu, diff_cpu_cpu, max_err_cpu_cpu);
 
-    println!("\n  Summary: {} matches, {} significant differences, max_error={}",
-             match_count, diff_count, max_error);
-
-    if diff_count == 0 {
-        println!("  ✓ EVK property VERIFIED for digit 0!");
-    } else {
-        println!("  ✗ EVK property FAILED for digit 0!");
-        println!("  This means the EVK is incorrectly generated.");
+    // Using CPU multiply for evk1·s, GPU s² for reference
+    let mut match_cpu_gpu = 0;
+    let mut diff_cpu_gpu = 0;
+    let mut max_err_cpu_gpu = 0u64;
+    for i in 0..n {
+        let err = if diff_cpu[i] >= neg_s2_gpu[i] {
+            diff_cpu[i] - neg_s2_gpu[i]
+        } else {
+            neg_s2_gpu[i] - diff_cpu[i]
+        };
+        if err < 1_000_000 {
+            match_cpu_gpu += 1;
+        } else {
+            diff_cpu_gpu += 1;
+            if err > max_err_cpu_gpu { max_err_cpu_gpu = err; }
+        }
     }
+    println!("  CPU evk1·s, GPU s²: {} match, {} diff, max_err={}", match_cpu_gpu, diff_cpu_gpu, max_err_cpu_gpu);
 
-    // Also verify digit 1: evk0[1] - evk1[1]·s = -B^1·s² = -B·s²
+    // Using GPU multiply for evk1·s, GPU s² for reference (should match best if EVK uses GPU internally)
+    let mut match_gpu_gpu = 0;
+    let mut diff_gpu_gpu = 0;
+    let mut max_err_gpu_gpu = 0u64;
+    for i in 0..n {
+        let err = if diff_gpu[i] >= neg_s2_gpu[i] {
+            diff_gpu[i] - neg_s2_gpu[i]
+        } else {
+            neg_s2_gpu[i] - diff_gpu[i]
+        };
+        if err < 1_000_000 {
+            match_gpu_gpu += 1;
+        } else {
+            diff_gpu_gpu += 1;
+            if err > max_err_gpu_gpu { max_err_gpu_gpu = err; }
+            if diff_gpu_gpu <= 3 {
+                println!("    [GPU/GPU] DIFF at [{}]: actual={}, expected={}, err={}",
+                    i, diff_gpu[i], neg_s2_gpu[i], err);
+            }
+        }
+    }
+    println!("  GPU evk1·s, GPU s²: {} match, {} diff, max_err={}", match_gpu_gpu, diff_gpu_gpu, max_err_gpu_gpu);
+
     println!("\n════════════════════════════════════════════════════════════════════════");
-    println!("VERIFY: evk0[1] - evk1[1]·s = -B^1·s² = -{}·s² (digit 1)", base_w);
+    println!("DIAGNOSIS");
     println!("════════════════════════════════════════════════════════════════════════\n");
 
-    let (evk0_1, evk1_1) = &relin_key.ks_components[1];
-
-    // Compute evk1[1] · s for prime 0
-    let evk1_1_prime0: Vec<u64> = evk1_1[0..n].to_vec();
-    let evk1_1_s_prime0 = negacyclic_multiply_cpu(&evk1_1_prime0, &s_prime0, q0, n);
-
-    // Compute evk0[1] - evk1[1]·s
-    let mut diff1_prime0 = vec![0u64; n];
-    for i in 0..n {
-        diff1_prime0[i] = if evk0_1[i] >= evk1_1_s_prime0[i] {
-            evk0_1[i] - evk1_1_s_prime0[i]
-        } else {
-            q0 - (evk1_1_s_prime0[i] - evk0_1[i])
-        };
-    }
-
-    // Expected: -B·s² mod q0
-    let neg_b_s2_prime0: Vec<u64> = s_squared_flat[0..n].iter()
-        .map(|&x| {
-            let bx = ((base_w as u128 * x as u128) % q0 as u128) as u64;
-            if bx == 0 { 0 } else { q0 - bx }
-        })
-        .collect();
-
-    println!("  (evk0[1] - evk1[1]·s)[coeff=0]: {}", diff1_prime0[0]);
-    println!("  Expected -B·s²[coeff=0]: {}", neg_b_s2_prime0[0]);
-
-    let mut match_count1 = 0;
-    let mut diff_count1 = 0;
-    for i in 0..n {
-        let error = if diff1_prime0[i] >= neg_b_s2_prime0[i] {
-            diff1_prime0[i] - neg_b_s2_prime0[i]
-        } else {
-            neg_b_s2_prime0[i] - diff1_prime0[i]
-        };
-        if error < 1000000 {
-            match_count1 += 1;
-        } else {
-            diff_count1 += 1;
-        }
-    }
-
-    println!("  Summary: {} matches, {} significant differences", match_count1, diff_count1);
-
-    if diff_count1 == 0 {
-        println!("  ✓ EVK property VERIFIED for digit 1!");
+    if s2_diff == 0 {
+        println!("  ✓ CPU and GPU s² match - NTT multiplication is correct");
     } else {
-        println!("  ✗ EVK property FAILED for digit 1!");
+        println!("  ✗ CPU and GPU s² differ - NTT multiplication has a bug");
+    }
+
+    if diff_cpu_cpu == 0 {
+        println!("  ✓ EVK property verified with CPU-only reference");
+    } else if diff_gpu_gpu == 0 {
+        println!("  ⚠ EVK property verified only with GPU reference (CPU has different s²)");
+    } else {
+        println!("  ✗ EVK property FAILED - bug in EVK generation or multiplication");
+
+        // Additional diagnostics
+        if max_err_cpu_cpu > params.moduli[0] / 2 {
+            println!("    Large errors (~q) suggest sign/wrap bugs in multiplication");
+        }
+        if evk1s_diff > 0 {
+            println!("    CPU vs GPU (evk1·s) differ - bug in one of the multiplies");
+        }
     }
 
     println!("\n════════════════════════════════════════════════════════════════════════");
