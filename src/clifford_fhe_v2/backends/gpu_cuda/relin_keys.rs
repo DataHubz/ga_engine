@@ -33,6 +33,8 @@
 use crate::clifford_fhe_v2::backends::gpu_cuda::device::CudaDeviceContext;
 use crate::clifford_fhe_v2::backends::cpu_optimized::rns::BarrettReducer;
 use crate::clifford_fhe_v2::params::CliffordFHEParams;
+use num_bigint::BigInt;
+use num_traits::{One, Zero, ToPrimitive};
 use rand::Rng;
 use std::sync::Arc;
 
@@ -588,44 +590,123 @@ impl CudaRelinKeys {
         Ok(result)
     }
 
-    /// Gadget decomposition: decompose polynomial into base-w digits
+    /// Gadget decomposition: decompose polynomial into base-w digits using CRT
     ///
-    /// Input: poly in flat RNS layout
+    /// This is the CORRECT implementation that matches Metal's gadget_decompose_flat.
+    /// It uses Chinese Remainder Theorem to reconstruct the full integer before
+    /// decomposing into balanced base-w digits.
+    ///
+    /// Input: poly in flat RNS layout [prime_idx * n + coeff_idx]
     /// Output: Vec of digit polynomials, each in flat RNS layout
     fn gadget_decompose(&self, poly: &[u64], num_primes: usize) -> Result<Vec<Vec<u64>>, String> {
         let n = self.params.n;
-        let mut digits = vec![vec![0u64; n * num_primes]; self.dnum];
+        let moduli = &self.params.moduli[..num_primes];
+        let base_w = self.base_w as u32;
+
+        // Compute Q = product of all primes
+        let q_prod_big: BigInt = moduli.iter().map(|&q| BigInt::from(q)).product();
+        let q_half_big = &q_prod_big / 2;
+        let base_big = BigInt::one() << base_w;  // B = 2^base_w
+
+        // Determine number of digits based on Q
+        let q_bits = q_prod_big.bits() as u32;
+        let num_digits = ((q_bits + base_w - 1) / base_w) as usize;
+
+        // Use the smaller of computed num_digits or self.dnum
+        let actual_num_digits = num_digits.min(self.dnum);
+        let mut digits = vec![vec![0u64; n * num_primes]; actual_num_digits];
 
         // For each coefficient
         for coeff_idx in 0..n {
-            // For each prime
-            for prime_idx in 0..num_primes {
+            // Step 1: CRT reconstruct to get x ∈ [0, Q)
+            let mut x_big = BigInt::zero();
+            for (prime_idx, &q) in moduli.iter().enumerate() {
                 let flat_idx = prime_idx * n + coeff_idx;
-                let mut val = poly[flat_idx];
-                let q = self.params.moduli[prime_idx];
+                let residue = poly[flat_idx];
 
-                // Decompose into base-w digits
-                for digit_idx in 0..self.dnum {
-                    let digit = val % self.base_w;
+                let q_big = BigInt::from(q);
+                let q_i = &q_prod_big / &q_big;
 
-                    // Signed decomposition: center around 0
-                    let signed_digit = if digit > self.base_w / 2 {
-                        if digit >= q {
-                            digit
-                        } else {
-                            q - (self.base_w - digit)
-                        }
-                    } else {
-                        digit
-                    };
+                // Compute q_i^(-1) mod q using extended GCD
+                let qi_inv = Self::mod_inverse_bigint(&q_i, &q_big)?;
 
-                    digits[digit_idx][flat_idx] = signed_digit;
-                    val /= self.base_w;
+                let ri_big = BigInt::from(residue);
+                // Compute: basis = (Q/qi) * inv mod Q, then term = ri * basis mod Q
+                let basis = (&q_i * &qi_inv) % &q_prod_big;
+                let term = (ri_big * basis) % &q_prod_big;
+                x_big = (&x_big + term) % &q_prod_big;
+            }
+
+            // Ensure result is positive
+            if x_big.sign() == num_bigint::Sign::Minus {
+                x_big += &q_prod_big;
+            }
+
+            // Step 2: Center-lift to x_c ∈ (-Q/2, Q/2]
+            let x_centered_big = if x_big > q_half_big {
+                x_big - &q_prod_big
+            } else {
+                x_big
+            };
+
+            // Step 3: Balanced decomposition in Z
+            let mut remainder_big = x_centered_big;
+            let half_base_big = &base_big / 2;
+
+            for t in 0..actual_num_digits {
+                // Extract digit dt ∈ (-B/2, B/2] (balanced)
+                let dt_unbalanced = &remainder_big % &base_big;
+                let dt_big = if dt_unbalanced > half_base_big {
+                    &dt_unbalanced - &base_big  // Shift to negative range
+                } else {
+                    dt_unbalanced
+                };
+
+                // Convert dt to residues mod each prime
+                for (prime_idx, &q) in moduli.iter().enumerate() {
+                    let flat_idx = prime_idx * n + coeff_idx;
+                    let q_big = BigInt::from(q);
+                    let mut dt_mod_q_big = &dt_big % &q_big;
+                    if dt_mod_q_big.sign() == num_bigint::Sign::Minus {
+                        dt_mod_q_big += &q_big;
+                    }
+                    digits[t][flat_idx] = dt_mod_q_big.to_u64().unwrap_or(0);
                 }
+
+                // Update remainder: (x_c - dt) / B (exact division)
+                remainder_big = (remainder_big - &dt_big) / &base_big;
             }
         }
 
         Ok(digits)
+    }
+
+    /// Modular inverse using extended Euclidean algorithm (BigInt version)
+    fn mod_inverse_bigint(a: &BigInt, modulus: &BigInt) -> Result<BigInt, String> {
+        let mut t = BigInt::zero();
+        let mut newt = BigInt::one();
+        let mut r = modulus.clone();
+        let mut newr = a.clone();
+
+        while !newr.is_zero() {
+            let quotient = &r / &newr;
+            let temp_t = t.clone();
+            t = newt.clone();
+            newt = temp_t - &quotient * &newt;
+
+            let temp_r = r.clone();
+            r = newr.clone();
+            newr = temp_r - quotient * newr;
+        }
+
+        if r > BigInt::one() {
+            return Err(format!("Not invertible"));
+        }
+        if t < BigInt::zero() {
+            t += modulus;
+        }
+
+        Ok(t)
     }
 
     /// CPU polynomial multiplication in flat RNS layout (schoolbook)
