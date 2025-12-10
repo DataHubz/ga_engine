@@ -727,11 +727,15 @@ impl CudaRelinKeys {
             let psi = Self::find_primitive_root(n, q)?;
             let psi_inv = Self::mod_inverse_u64(psi, q)?;
 
-            // Debug: print psi values
+            // Debug: print psi values and verify omega = psi²
             if std::env::var("PSI_DEBUG").is_ok() && prime_idx < 3 {
                 let omega = ntt_ctx.root;
-                println!("[PSI_DEBUG EVK_GEN] Prime {}: psi={}, omega={} (via find_primitive_root)",
-                         prime_idx, psi, omega);
+                let psi_squared = Self::mul_mod_u64(psi, psi, q);
+                println!("[PSI_DEBUG EVK_GEN] Prime {}: psi={}, psi²={}, omega={} (via find_primitive_root)",
+                         prime_idx, psi, psi_squared, omega);
+                if psi_squared != omega {
+                    println!("[PSI_DEBUG EVK_GEN] WARNING: psi² != omega! This WILL cause incorrect results!");
+                }
             }
 
             // Extract polynomials for this prime
