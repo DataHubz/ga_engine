@@ -62,15 +62,17 @@ cat $RESULTS_DIR/system_info.txt
 echo ""
 
 # Build with CUDA features
+# Note: Use --no-default-features to avoid lattice-reduction which requires Fortran compiler
 echo "[2/7] Building with CUDA features..."
-echo "Running: cargo build --release --features v2,v2-gpu-cuda,v4"
-cargo build --release --features v2,v2-gpu-cuda,v4 2>&1 | tee $RESULTS_DIR/build.log
+CUDA_FEATURES="--no-default-features --features f64,nd,v2,v2-gpu-cuda,v4"
+echo "Running: cargo build --release $CUDA_FEATURES"
+cargo build --release $CUDA_FEATURES 2>&1 | tee $RESULTS_DIR/build.log
 echo "Build complete!"
 echo ""
 
 # Verify CUDA integration
 echo "[3/7] Verifying CUDA integration..."
-cargo run --release --features v2,v2-gpu-cuda,v4 --example test_v4_cuda_basic 2>&1 | tee $RESULTS_DIR/cuda_verify.log
+cargo run --release $CUDA_FEATURES --example test_v4_cuda_basic 2>&1 | tee $RESULTS_DIR/cuda_verify.log
 if [ $? -eq 0 ]; then
     echo "✓ CUDA integration verified!"
 else
@@ -79,30 +81,40 @@ else
 fi
 echo ""
 
+# Run comprehensive homomorphic operations benchmark
+echo "[4/8] Running Comprehensive Homomorphic Ops Benchmark..."
+cargo run --release $CUDA_FEATURES --example bench_cuda_all_ops 2>&1 | tee $RESULTS_DIR/all_ops.log
+echo ""
+
 # Run V4 CUDA geometric product benchmark (quick version)
-echo "[4/7] Running V4 CUDA Geometric Product Benchmark (Quick)..."
-cargo run --release --features v2,v2-gpu-cuda,v4 --example bench_v4_cuda_geometric_quick 2>&1 | tee $RESULTS_DIR/v4_geometric_quick.log
+echo "[5/8] Running V4 CUDA Geometric Product Benchmark (Quick)..."
+cargo run --release $CUDA_FEATURES --example bench_v4_cuda_geometric_quick 2>&1 | tee $RESULTS_DIR/v4_geometric_quick.log
 echo ""
 
 if [ "$MODE" = "full" ]; then
     # Run full V4 CUDA geometric product benchmark
-    echo "[5/7] Running V4 CUDA Geometric Product Benchmark (Full)..."
-    cargo run --release --features v2,v2-gpu-cuda,v4 --example bench_v4_cuda_geometric 2>&1 | tee $RESULTS_DIR/v4_geometric_full.log
+    echo "[6/8] Running V4 CUDA Geometric Product Benchmark (Full)..."
+    cargo run --release $CUDA_FEATURES --example bench_v4_cuda_geometric 2>&1 | tee $RESULTS_DIR/v4_geometric_full.log
     echo ""
 
     # Run V4 CUDA packing benchmark
-    echo "[6/7] Running V4 CUDA Packing Benchmark..."
-    cargo run --release --features v2,v2-gpu-cuda,v4 --example bench_v4_cuda_packing 2>&1 | tee $RESULTS_DIR/v4_packing.log
+    echo "[7/8] Running V4 CUDA Packing Benchmark..."
+    cargo run --release $CUDA_FEATURES --example bench_v4_cuda_packing 2>&1 | tee $RESULTS_DIR/v4_packing.log
     echo ""
 
     # Run division benchmark
-    echo "[7/7] Running CUDA Division Benchmark..."
-    cargo run --release --features v2,v2-gpu-cuda --example bench_division_cuda_gpu 2>&1 | tee $RESULTS_DIR/division_cuda.log
+    echo "[8/9] Running CUDA Division Benchmark..."
+    cargo run --release $CUDA_FEATURES --example bench_division_cuda_gpu 2>&1 | tee $RESULTS_DIR/division_cuda.log
+    echo ""
+
+    # Run bootstrap benchmark (requires v3 feature)
+    echo "[9/9] Running CUDA Bootstrap Benchmark..."
+    cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v3 --example bench_cuda_bootstrap 2>&1 | tee $RESULTS_DIR/bootstrap_cuda.log
     echo ""
 else
-    echo "[5/7] Skipping full geometric benchmark (quick mode)"
-    echo "[6/7] Skipping packing benchmark (quick mode)"
-    echo "[7/7] Skipping division benchmark (quick mode)"
+    echo "[6/8] Skipping full geometric benchmark (quick mode)"
+    echo "[7/8] Skipping packing benchmark (quick mode)"
+    echo "[8/8] Skipping division benchmark (quick mode)"
     echo ""
 fi
 
@@ -123,24 +135,28 @@ EOF
 if [ "$MODE" = "full" ]; then
     cat >> $RESULTS_DIR/SUMMARY.md << EOF
 1. ✓ CUDA Integration Verification
-2. ✓ V4 Geometric Product (Quick)
-3. ✓ V4 Geometric Product (Full)
-4. ✓ V4 Packing
-5. ✓ Division
+2. ✓ All Homomorphic Operations (Encode/Encrypt/Add/Mult/Rotate/etc.)
+3. ✓ V4 Geometric Product (Quick)
+4. ✓ V4 Geometric Product (Full)
+5. ✓ V4 Packing
+6. ✓ Division
+7. ✓ Bootstrap (V3 CKKS)
 
 ## Key Results
 Extract key timing from log files:
 \`\`\`
-grep -E "geometric product|Geometric Product|ms|µs|speedup" $RESULTS_DIR/*.log
+grep -E "geometric product|Geometric Product|ms|µs|speedup|Avg|Bootstrap" $RESULTS_DIR/*.log
 \`\`\`
 EOF
 else
     cat >> $RESULTS_DIR/SUMMARY.md << EOF
 1. ✓ CUDA Integration Verification
-2. ✓ V4 Geometric Product (Quick)
-3. ○ V4 Geometric Product (Full) - skipped
-4. ○ V4 Packing - skipped
-5. ○ Division - skipped
+2. ✓ All Homomorphic Operations (Encode/Encrypt/Add/Mult/Rotate/etc.)
+3. ✓ V4 Geometric Product (Quick)
+4. ○ V4 Geometric Product (Full) - skipped
+5. ○ V4 Packing - skipped
+6. ○ Division - skipped
+7. ○ Bootstrap - skipped
 
 To run full benchmarks:
 \`\`\`

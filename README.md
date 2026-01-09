@@ -10,7 +10,7 @@ A production-grade Rust framework implementing the first fully homomorphic encry
 
 **GA Engine** implements **Clifford FHE**, a novel cryptographic scheme combining Ring Learning With Errors (RLWE) based fully homomorphic encryption with Clifford geometric algebra operations. This enables practical privacy-preserving machine learning on encrypted geometric data, a capability critical for medical imaging, autonomous systems, and secure spatial computing applications.
 
-The framework achieves **production-candidate performance** through systematic optimization: from baseline reference implementation (V1) to hardware-accelerated backends featuring Metal and CUDA GPU support achieving **2,002× speedup**, delivering **5.7ms** homomorphic geometric products on NVIDIA RTX 5090 architecture.
+The framework achieves **production-candidate performance** through systematic optimization: from baseline reference implementation (V1) to hardware-accelerated backends featuring Metal and CUDA GPU support achieving **2,002× speedup**, delivering **sub-millisecond** homomorphic additions and **~217ms** ciphertext multiplications on NVIDIA RTX 4090 architecture.
 
 ## Technical Achievements
 
@@ -19,7 +19,7 @@ The framework achieves **production-candidate performance** through systematic o
 - **≥118-bit post-quantum security**: Verified using Lattice Estimator against primal, dual, and hybrid attacks
 - **Production-grade RNS-CKKS foundation**: Multi-prime modulus chain enabling deep computation circuits
 - **Full bootstrapping implementation** (V3): Unlimited multiplication depth through homomorphic noise refresh
-  - **CUDA GPU**: 11.95s bootstrap (5.86× faster than CPU, 100% GPU execution with relinearization)
+  - **CUDA GPU**: **9.93s** bootstrap (7× faster than CPU, 100% GPU execution with relinearization)
   - **Metal GPU**: 60s bootstrap (100% GPU execution)
   - **CPU**: 70s bootstrap (reference implementation)
 
@@ -34,18 +34,47 @@ The framework achieves **production-candidate performance** through systematic o
 | V2 Metal GPU | Apple M3 Max GPU | 33 ms | 346× | 30.3 ops/sec |
 | **V2 CUDA GPU** | **NVIDIA RTX 5090** | **5.7 ms** | **2,002×** | **175 ops/sec** |
 
+#### CUDA GPU Benchmark Results (RTX 4090)
+
+**Core Homomorphic Operations** (N=4096, 7 primes):
+
+| Operation | Time | Throughput |
+|-----------|------|------------|
+| **Add (ct+ct)** | 0.036 ms | 28,010 ops/sec |
+| **Subtract (ct-ct)** | 0.148 ms | 6,757 ops/sec |
+| **Multiply (ct×ct)** | 217.3 ms | 4.6 ops/sec |
+| **Multiply Plain (ct×pt)** | 0.341 ms | 2,933 ops/sec |
+| **Rotate (1 slot)** | 5.70 ms | 175 ops/sec |
+| **Rescale** | 0.414 ms | 2,415 ops/sec |
+| **Mod Switch** | 0.040 ms | 25,000 ops/sec |
+| Encode | 0.020 ms | 50,000 ops/sec |
+| Encrypt | 6.41 ms | 156 ops/sec |
+| Decrypt | 2.93 ms | 342 ops/sec |
+
+**Homomorphic Division** (Newton-Raphson, N=4096):
+- Average time: **931 ms** per division
+- CPU comparison: ~8,000 ms
+- **Speedup: 8.6×**
+
+**V4 Geometric Product** (Packed Multivector Layout):
+| Configuration | Time | Notes |
+|---------------|------|-------|
+| N=1024 (quick) | **0.37s** | Packing: 37ms |
+| N=4096 (full) | **2.05s** | Packing: 815ms, 8× memory savings |
+
 #### Bootstrap Performance (V3 Full Bootstrap)
 
 | Backend | Hardware | Total Time | Speedup vs CPU | Status |
 |---------|----------|------------|----------------|--------|
 | V3 CPU | Apple M3 Max | ~70s | 1× | Reference |
 | V3 Metal GPU | Apple M3 Max | ~60s | 1.17× | Production Stable |
-| **V3 CUDA GPU** | **NVIDIA GPU** | **~11.95s** | **5.86×** | **Production Stable** |
+| **V3 CUDA GPU** | **NVIDIA RTX 4090** | **9.93s** | **7×** | **Production Stable** |
 
-**V3 CUDA GPU Bootstrap Breakdown**:
-- EvalMod: ~11.76s (98% of total time)
-- CoeffToSlot: ~0.15s
-- SlotToCoeff: ~0.04s
+**V3 CUDA GPU Bootstrap Breakdown** (N=1024, 30 primes):
+- CoeffToSlot: ~0.23s (linear transforms + rotations)
+- **EvalMod: ~9.57s** (96% of total - polynomial sine approximation)
+- SlotToCoeff: ~0.13s (inverse transforms)
+- Throughput: **6 bootstraps/minute**
 - Error: ~1e-3
 - Full relinearization support
 - 100% GPU execution (no CPU fallback)
@@ -88,7 +117,7 @@ The framework achieves **production-candidate performance** through systematic o
 - **Purpose**: Deep neural networks, complex circuits, production ML deployment
 - **Status**: Complete and validated, 52/52 tests passing (100%)
 - **Performance**:
-  - CUDA GPU: **11.95s bootstrap** (5.86× faster than CPU)
+  - CUDA GPU: **9.93s bootstrap** (7× faster than CPU, RTX 4090)
   - Metal GPU: 60s bootstrap
   - CPU: 70s bootstrap (reference)
 - **Architecture**: **V3 uses V2 backend** (not backend-agnostic)
@@ -106,8 +135,9 @@ The framework achieves **production-candidate performance** through systematic o
 #### **V4: Packed Multivector Layout**
 - **Purpose**: Memory-efficient geometric operations, SIMD slot packing for multivectors
 - **Status**: Complete with Metal and CUDA GPU backends, validated with production tests
-- **Performance**:
-  - **CUDA GPU** (RTX 5090, N=1024): 36.84s per packed geometric product
+- **Performance** (NVIDIA RTX 4090):
+  - **N=1024**: 0.37s per packed geometric product (packing: 37ms)
+  - **N=4096**: 2.05s per packed geometric product (packing: 815ms)
   - **Metal GPU**: ~5.0s per packed geometric product
 - **Architecture**: **V4 uses V2 backend** (builds on V2 GPU infrastructure)
   - V4 provides packing/unpacking operations (slot-interleaved layout)
@@ -217,6 +247,21 @@ cargo test --release --features v4,v2-gpu-metal --test test_geometric_operations
 cargo run --release --features v4,v2-gpu-cuda --example bench_v4_cuda_geometric_quick
 ```
 
+### Running Benchmarks
+
+```bash
+# Full CUDA benchmark suite (all operations + bootstrap)
+./scripts/run_cuda_benchmarks.sh full
+
+# Quick CUDA benchmarks (basic verification)
+./scripts/run_cuda_benchmarks.sh
+
+# Individual benchmarks
+cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda --example bench_cuda_all_ops
+cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v3 --example bench_cuda_bootstrap
+cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda --example bench_division_cuda_gpu
+```
+
 ### Running Tests
 
 ```bash
@@ -245,9 +290,11 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) for comprehensive testing instructions.
 
 **Results**:
 - **Accuracy**: 99% on encrypted 3D point clouds (100 points/sample)
-- **Latency**:
-  - Single sample: 5.7ms per operation (V2 CUDA)
-  - With bootstrap: ~11.95s refresh (V3 CUDA GPU)
+- **Latency** (NVIDIA RTX 4090):
+  - Ciphertext addition: 0.036ms
+  - Ciphertext multiplication: 217ms
+  - Rotation: 5.7ms
+  - With bootstrap: **9.93s** refresh (V3 CUDA GPU)
 - **Error**: <10⁻⁶ relative precision maintained throughout computation
 - **Privacy**: Zero-knowledge inference—server never observes plaintext data or model weights
 
