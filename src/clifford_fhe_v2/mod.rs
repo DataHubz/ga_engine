@@ -6,9 +6,9 @@
 //! - SIMD batching for throughput (8-16× more samples/second)
 //! - Rotation-specific keys (2× faster rotations)
 //!
-//! **Target:** Close the 59× performance gap from Paper 1
+//! **Target:** Close the 59x performance gap from V1 baseline
 //! - V1 baseline: 13s per geometric product
-//! - V2 target: ≤220ms per geometric product
+//! - V2 target: <=220ms per geometric product
 //!
 //! ## Usage
 //!

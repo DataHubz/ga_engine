@@ -14,7 +14,7 @@ pub enum SecurityLevel {
 /// Backend selection
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Backend {
-    /// V1 baseline (Paper 1 implementation)
+    /// V1 baseline implementation
     V1,
     /// CPU optimized (NTT + SIMD, no GPU)
     CpuOptimized,
@@ -29,7 +29,7 @@ pub enum Backend {
 impl Backend {
     pub fn name(&self) -> &'static str {
         match self {
-            Backend::V1 => "V1 (Paper 1 Baseline)",
+            Backend::V1 => "V1 Baseline",
             Backend::CpuOptimized => "V2 CPU Optimized (NTT+SIMD)",
             Backend::GpuCuda => "V2 GPU CUDA",
             Backend::GpuMetal => "V2 GPU Metal",
