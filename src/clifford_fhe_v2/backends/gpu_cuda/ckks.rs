@@ -1139,7 +1139,7 @@ impl CudaCkksContext {
 
         // Total: 13 kernel launches (4 forward + 4 pointwise + 4 inverse + 1 CPU op)
         // vs 240 kernel launches in sequential version
-        // Result: 20× reduction in kernel launch overhead! 🚀
+        // Result: 20x reduction in kernel launch overhead
 
         Ok((c0_result, c1_result, c2_result))
     }
@@ -2236,7 +2236,7 @@ mod tests {
         let ctx = CudaCkksContext::new(params).expect("Failed to create CUDA CKKS context");
 
         assert_eq!(ctx.ntt_contexts.len(), ctx.params.moduli.len());
-        println!("✅ CUDA CKKS context created successfully");
+        println!("CUDA CKKS context created successfully");
     }
 
     #[test]
@@ -2264,7 +2264,7 @@ mod tests {
         let expected_size = n * (num_primes - 1);
         assert_eq!(result.len(), expected_size);
 
-        println!("✅ CUDA rescale test passed");
+        println!("CUDA rescale test passed");
     }
 }
 

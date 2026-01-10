@@ -136,9 +136,9 @@ impl CliffordFHEParams {
         // - Old q₃ = 1099511693313 was COMPOSITE (3 × 366503897771)
         let moduli = vec![
             1141392289560813569,  // q₀ (60-bit, NTT-friendly) - for security
-            1099511678977,        // q₁ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
-            1099511683073,        // q₂ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
-            1099511795713,        // q₃ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME (FIXED!)
+            1099511678977,        // q₁ (41-bit, NTT-friendly) - SCALING PRIME (verified)
+            1099511683073,        // q₂ (41-bit, NTT-friendly) - SCALING PRIME (verified)
+            1099511795713,        // q₃ (41-bit, NTT-friendly) - SCALING PRIME (verified, fixed)
         ];
 
         Self {
@@ -170,10 +170,10 @@ impl CliffordFHEParams {
         // - All values verified with Miller-Rabin and Fermat tests
         let moduli = vec![
             1141392289560813569,  // q₀ (60-bit, NTT-friendly) - for security
-            1099511678977,        // q₁ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
-            1099511683073,        // q₂ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME
-            1099511795713,        // q₃ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME (FIXED!)
-            1099511799809,        // q₄ (41-bit, ≈ 2^40, NTT-friendly) - SCALING PRIME ✅ PRIME (FIXED!)
+            1099511678977,        // q₁ (41-bit, NTT-friendly) - SCALING PRIME (verified)
+            1099511683073,        // q₂ (41-bit, NTT-friendly) - SCALING PRIME (verified)
+            1099511795713,        // q₃ (41-bit, NTT-friendly) - SCALING PRIME (verified, fixed)
+            1099511799809,        // q₄ (41-bit, NTT-friendly) - SCALING PRIME (verified, fixed)
         ];
 
         let scale_value = 1099511627776_f64;  // 2^40 - power of 2 for clean encoding

@@ -265,7 +265,7 @@ impl CliffordFHEParams {
         let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
         let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
 
-        println!("  ✅ Generated {} NTT-friendly primes", moduli.len());
+        println!("  Generated {} NTT-friendly primes", moduli.len());
 
         Ok(Self {
             n,
@@ -313,7 +313,7 @@ impl CliffordFHEParams {
         let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
         let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
 
-        println!("  ✅ Generated {} NTT-friendly primes", moduli.len());
+        println!("  Generated {} NTT-friendly primes", moduli.len());
         println!("  N = {}, num_primes = {}", n, moduli.len());
         println!("  Level budget: CoeffToSlot(9) + EvalMod(9) + SlotToCoeff(9) = 27 levels used");
 

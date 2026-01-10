@@ -704,10 +704,6 @@ pub fn rns_multiply(
                 let got = ((result.rns_coeffs[i][j] % q) + q) % q;
                 let exp = ((expected[i] % q) + q) % q;
                 if got != exp {
-                    // eprintln!("❌ RNS_MULTIPLY SELFCHECK FAILED!");
-                    // eprintln!("   coeff[{}], prime_idx[{}] (q={})", i, j, q);
-                    // eprintln!("   Expected: {}", exp);
-                    // eprintln!("   Got:      {}", got);
                     panic!("RNS multiply self-check failed - per-prime misalignment detected!");
                 }
             }

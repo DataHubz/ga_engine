@@ -1691,7 +1691,7 @@ mod multiply_plain_tests {
         let diff2 = (&c_rescaled2 - BigInt::from(k2)).abs();
         assert!(diff2 <= BigInt::from(1), "Rescale error too large: {} (expected {})", c_rescaled2, k2);
 
-        println!("\n✅ H9.1 PASSED: Rescale correctly divides by q_top with rounding");
+        println!("\nH9.1 PASSED: Rescale correctly divides by q_top with rounding");
     }
 
     /// H9.2: UNIT TEST - Plain multiply sanity check (all 2s × all 3s = all 6s)
@@ -1758,7 +1758,7 @@ mod multiply_plain_tests {
         let mean_error = (mean - expected).abs();
         assert!(mean_error < 0.001, "Mean error {} exceeds 0.001", mean_error);
 
-        println!("\n✅ H9.2 PASSED: Plain multiply produces correct results (error < 0.01)");
+        println!("\nH9.2 PASSED: Plain multiply produces correct results (error < 0.01)");
     }
 
     /// H9.3: SIMPLIFIED TEST - No encryption, just plaintext arithmetic
@@ -1822,7 +1822,7 @@ mod multiply_plain_tests {
 
         assert!(max_error < 0.01, "Plaintext-only multiply failed: max error {} exceeds 0.01", max_error);
 
-        println!("\n✅ H9.3 PASSED: Plaintext-only multiply works correctly");
+        println!("\nH9.3 PASSED: Plaintext-only multiply works correctly");
     }
 }
 

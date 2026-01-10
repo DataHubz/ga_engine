@@ -526,19 +526,13 @@ pub fn rns_decrypt(sk: &RnsSecretKey, ct: &RnsCiphertext, params: &CliffordFHEPa
 
                 // Check if they represent the same value by checking (r0 - r1) % gcd(p,q) == 0
                 // Since p, q are coprime, gcd = 1, so we check via CRT
-                // eprintln!("  {} CRT check: r0={}, r1={}", name, r0, r1);
-                // eprintln!("    r0 mod q = {}, should equal r1 = {}", r0 % q, r1);
-                if r0 % q != r1 {
-                    // eprintln!("    ⚠️  WARNING: {} residues are INCONSISTENT!", name);
-                }
+                let _crt_consistent = r0 % q == r1;
             }
         };
 
         check_crt("ct.c0[0]", &ct.c0.rns_coeffs[0], active_primes);
         check_crt("ct.c1[0]", &ct.c1.rns_coeffs[0], active_primes);
         check_crt("sk[0]", &sk_at_level.rns_coeffs[0], active_primes);
-
-        // eprintln!("  c1s[0] residues: {:?}", &c1s.rns_coeffs[0]);
         check_crt("c1s[0]", &c1s.rns_coeffs[0], active_primes);
     }
 
@@ -550,18 +544,13 @@ pub fn rns_decrypt(sk: &RnsSecretKey, ct: &RnsCiphertext, params: &CliffordFHEPa
     let m_prime = rns_add(&ct.c0, &c1s, active_primes);
 
     if std::env::var("RNS_TRACE").is_ok() {
-        // eprintln!("  m_prime[0] residues: {:?}", &m_prime.rns_coeffs[0]);
         // Only do CRT check if we have 2+ residues
         if num_primes >= 2 {
             let r0 = m_prime.rns_coeffs[0][0] as i128;
             let r1 = m_prime.rns_coeffs[0][1] as i128;
-            let p = active_primes[0] as i128;
+            let _p = active_primes[0] as i128;
             let q = active_primes[1] as i128;
-            // eprintln!("  m_prime CRT check: r0={}, r1={}", r0, r1);
-            // eprintln!("    r0 mod q = {}, should equal r1 = {}", r0 % q, r1);
-            if r0 % q != r1 {
-                // eprintln!("    ⚠️  WARNING: m_prime residues are INCONSISTENT!");
-            }
+            let _crt_consistent = r0 % q == r1;
         }
     }
 

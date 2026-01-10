@@ -3,12 +3,12 @@
 //! **Achievement:** 3-4× speedup vs V1 baseline through algorithmic improvements
 //!
 //! **Optimizations:**
-//! - ✅ Harvey butterfly NTT (O(n log n) polynomial multiplication)
-//! - ✅ RNS arithmetic with native % operator (LLVM-optimized)
-//! - ✅ NTT-based CKKS encryption/decryption
-//! - ✅ NTT-based key generation and relinearization
-//! - ✅ All geometric operations ported to NTT
-//! - 🏗️ Montgomery SIMD infrastructure (AVX2/NEON) - reserved for V3
+//! - Harvey butterfly NTT (O(n log n) polynomial multiplication)
+//! - RNS arithmetic with native % operator (LLVM-optimized)
+//! - NTT-based CKKS encryption/decryption
+//! - NTT-based key generation and relinearization
+//! - All geometric operations ported to NTT
+//! - Montgomery SIMD infrastructure (AVX2/NEON) - reserved for V3
 //!
 //! **Status:** Production-ready, 127 tests passing
 //!

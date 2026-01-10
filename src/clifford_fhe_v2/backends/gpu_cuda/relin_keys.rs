@@ -128,7 +128,7 @@ impl CudaRelinKeys {
         let start = std::time::Instant::now();
         ctx.generate_relin_key(&secret_key)?;
         let elapsed = start.elapsed().as_secs_f64();
-        println!("  ✅ Relinearization key generated in {:.2}s\n", elapsed);
+        println!("  Relinearization key generated in {:.2}s\n", elapsed);
 
         Ok(ctx)
     }
@@ -185,7 +185,7 @@ impl CudaRelinKeys {
         let start = std::time::Instant::now();
         ctx.generate_relin_key_gpu(&secret_key, ntt_contexts)?;
         let elapsed = start.elapsed().as_secs_f64();
-        println!("  ✅ Relinearization key generated in {:.2}s\n", elapsed);
+        println!("  Relinearization key generated in {:.2}s\n", elapsed);
 
         Ok(ctx)
     }
@@ -313,12 +313,12 @@ impl CudaRelinKeys {
         Ok(())
     }
 
-    /// Generate relinearization key for s^2 → s (CPU version - DEPRECATED and BUGGY!)
+    /// Generate relinearization key for s^2 -> s (CPU version - DEPRECATED)
     ///
-    /// ⚠️ WARNING: This function has a bug - it uses a_i·s² instead of B^t·s²
-    /// Use generate_relin_key_gpu() instead which has the correct implementation
+    /// WARNING: This function has a known bug - it uses a_i*s^2 instead of B^t*s^2.
+    /// Use generate_relin_key_gpu() instead which has the correct implementation.
     ///
-    /// Generates: RelinKey = {(b_i, a_i)} where b_i = -a_i·s^2 + e_i + w^i·s (WRONG!)
+    /// Generates: RelinKey = {(b_i, a_i)} where b_i = -a_i*s^2 + e_i + w^i*s (incorrect)
     fn generate_relin_key(&mut self, secret_key: &[u64]) -> Result<(), String> {
         let n = self.params.n;
         let num_primes_key = self.reducers_key.len();

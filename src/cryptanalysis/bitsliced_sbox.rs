@@ -6,9 +6,9 @@
 //!
 //! # Bit-Slicing Concept
 //!
-//! Instead of:
-//!   input[0] = 0b10110011 → sbox → output[0] = 0bXXXXXXXX
-//!   input[1] = 0b01010101 → sbox → output[1] = 0bYYYYYYYY
+//! Instead of processing each input sequentially:
+//!   input[0] -> sbox -> output[0]
+//!   input[1] -> sbox -> output[1]
 //!   ...
 //!
 //! We organize by bit positions:

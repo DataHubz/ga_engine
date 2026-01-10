@@ -10,15 +10,15 @@
 //! **Performance Target:** 30-50× faster geometric operations vs V1
 //!
 //! **Status:**
-//! - ✅ Structure constants (Cl3StructureConstants)
-//! - ✅ Basic operations: reverse, add, sub, scalar mul
-//! - ✅ Ciphertext multiplication (with NTT-based relinearization)
-//! - ✅ Geometric product (parallel, using structure constants + multiplication)
-//! - ✅ Wedge product (antisymmetric part)
-//! - ✅ Inner product (symmetric part)
-//! - ✅ Rotation (R ⊗ v ⊗ R̃)
-//! - ✅ Projection ((a·b̃)⊗b / (b·b̃))
-//! - ✅ Rejection (a - proj_b(a))
+//! - Structure constants (Cl3StructureConstants)
+//! - Basic operations: reverse, add, sub, scalar mul
+//! - Ciphertext multiplication (with NTT-based relinearization)
+//! - Geometric product (parallel, using structure constants + multiplication)
+//! - Wedge product (antisymmetric part)
+//! - Inner product (symmetric part)
+//! - Rotation (R * v * R~)
+//! - Projection ((a.b~)*b / (b.b~))
+//! - Rejection (a - proj_b(a))
 
 use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Ciphertext;
 use crate::clifford_fhe_v2::backends::cpu_optimized::keys::{EvaluationKey, KeyContext};

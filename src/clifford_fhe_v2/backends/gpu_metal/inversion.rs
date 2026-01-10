@@ -161,7 +161,7 @@ pub fn newton_raphson_inverse_metal(
         println!("    ✓ Iteration complete (level {})\n", ct_xn.level);
     }
 
-    println!("✅ Newton-Raphson inverse complete!");
+    println!("[OK] Newton-Raphson inverse complete!");
     println!("   Final level: {}", ct_xn.level);
     println!("   Depth consumed: {}\n", ct.level - ct_xn.level);
 
@@ -241,7 +241,7 @@ pub fn scalar_division_metal(
     println!("Step 3: Multiplying numerator by (1/denominator)...");
     let ct_quotient = multiply_ciphertexts_metal(&ct_num, &ct_inv, relin_keys, ctx)?;
 
-    println!("\n✅ Division complete!");
+    println!("\n[OK] Division complete!");
     println!("   Final level: {}", ct_quotient.level);
     println!("   Total depth consumed: {}\n", numerator.level - ct_quotient.level);
 

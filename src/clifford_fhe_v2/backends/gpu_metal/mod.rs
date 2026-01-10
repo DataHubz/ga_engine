@@ -80,7 +80,7 @@ impl BackendInfo for GpuMetalBackend {
             has_ntt_optimization: true,
             has_gpu_acceleration: true,
             has_simd_batching: false,
-            has_rotation_keys: true,  // ✅ NOW SUPPORTED! (Phase 3 complete)
+            has_rotation_keys: true,  // Supported (Phase 3 complete)
         }
     }
 

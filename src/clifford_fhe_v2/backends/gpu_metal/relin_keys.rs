@@ -275,7 +275,7 @@ impl MetalRelinKeys {
         }
 
         let memory_mb = (2 * num_digits * n * num_primes * 8) as f64 / 1_048_576.0;
-        println!("\n✅ Relinearization keys generated successfully!");
+        println!("\nRelinearization keys generated successfully.");
         println!("   Memory footprint: {:.2} MB", memory_mb);
 
         Ok(Self {

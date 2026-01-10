@@ -249,7 +249,7 @@ impl CudaRotationKeys {
         };
 
         self.keys.insert(galois_elt, rot_key);
-        println!("  ✅ Rotation key generated\n");
+        println!("  Rotation key generated\n");
 
         Ok(())
     }
@@ -355,7 +355,7 @@ impl CudaRotationKeys {
         };
 
         self.keys.insert(galois_elt, rot_key);
-        println!("  ✅ Rotation key generated\n");
+        println!("  Rotation key generated\n");
 
         Ok(())
     }

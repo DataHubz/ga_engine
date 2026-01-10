@@ -63,7 +63,7 @@ impl CudaRotationContext {
         }
 
         let num_maps = ctx.rotation_maps.lock().unwrap().len();
-        println!("  ✅ Precomputed {} rotation maps\n", num_maps);
+        println!("  Precomputed {} rotation maps\n", num_maps);
 
         Ok(ctx)
     }
@@ -83,7 +83,7 @@ impl CudaRotationContext {
         ]).map_err(|e| format!("Failed to load Galois PTX: {:?}", e))?;
 
         self.galois_kernels_loaded = true;
-        println!("  ✅ Galois kernels loaded\n");
+        println!("  Galois kernels loaded\n");
 
         Ok(())
     }

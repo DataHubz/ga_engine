@@ -92,31 +92,31 @@ impl CudaBootstrapContext {
         println!("Step 1: Modulus raise");
         let step1_start = std::time::Instant::now();
         let ct_raised = self.modulus_raise(ct_in)?;
-        println!("  ✅ Modulus raised in {:.2}s\n", step1_start.elapsed().as_secs_f64());
+        println!("  Modulus raised in {:.2}s\n", step1_start.elapsed().as_secs_f64());
 
         // Step 2: CoeffToSlot transformation
         println!("Step 2: CoeffToSlot transformation");
         let step2_start = std::time::Instant::now();
         let ct_slots = self.coeff_to_slot(&ct_raised)?;
-        println!("  ✅ CoeffToSlot completed in {:.2}s\n", step2_start.elapsed().as_secs_f64());
+        println!("  CoeffToSlot completed in {:.2}s\n", step2_start.elapsed().as_secs_f64());
 
         // Step 3: EvalMod (sine evaluation for modular reduction)
         println!("Step 3: EvalMod (modular reduction)");
         let step3_start = std::time::Instant::now();
         let ct_evalmod = self.eval_mod(&ct_slots)?;
-        println!("  ✅ EvalMod completed in {:.2}s\n", step3_start.elapsed().as_secs_f64());
+        println!("  EvalMod completed in {:.2}s\n", step3_start.elapsed().as_secs_f64());
 
         // Step 4: SlotToCoeff transformation
         println!("Step 4: SlotToCoeff transformation");
         let step4_start = std::time::Instant::now();
         let ct_coeffs = self.slot_to_coeff(&ct_evalmod)?;
-        println!("  ✅ SlotToCoeff completed in {:.2}s\n", step4_start.elapsed().as_secs_f64());
+        println!("  SlotToCoeff completed in {:.2}s\n", step4_start.elapsed().as_secs_f64());
 
         // Step 5: Modulus switch (reduce back to original level)
         println!("Step 5: Modulus switch");
         let step5_start = std::time::Instant::now();
         let ct_out = self.modulus_switch(&ct_coeffs, ct_in.level)?;
-        println!("  ✅ Modulus switched in {:.2}s\n", step5_start.elapsed().as_secs_f64());
+        println!("  Modulus switched in {:.2}s\n", step5_start.elapsed().as_secs_f64());
 
         let total_time = total_start.elapsed().as_secs_f64();
         println!("═══════════════════════════════════════════════════════════════");

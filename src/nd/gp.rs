@@ -1,7 +1,7 @@
 //! src/nd/gp.rs
 //!
 //! (Deprecated) Runtime GP table generator for N-dimensional GA.
-//! ✅ Note: This logic is now inlined in `Multivector<N>::gp` for performance.
+//! Note: This logic is now inlined in `Multivector<N>::gp` for performance.
 //!
 //! You can delete this module if you're no longer using precomputed tables.
 
