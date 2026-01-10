@@ -235,10 +235,5 @@ This is research code for lattice reduction with geometric algebra optimizations
 
 ## License
 
-[To be determined based on publication requirements]
-
----
-
-**Last Updated**: November 5, 2025
-**Status**: Week 1 Complete, Ready for Week 2
+Apache 2.0 - See LICENSE file in repository root.
 **Maintainer**: David Silva

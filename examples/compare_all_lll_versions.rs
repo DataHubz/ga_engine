@@ -1,11 +1,11 @@
-//! CRYPTO 2026 - Three-Way Comparison
+//! LLL Three-Way Comparison
 //!
 //! Compare performance of:
 //! 1. Baseline LLL (standard GSO)
 //! 2. GA-LLL Hybrid (standard GSO + rotor tracking)
 //! 3. GA-LLL Pure (rotor-only GSO)
 //!
-//! Goal: Determine if pure rotor approach reduces the 2.6× overhead seen in hybrid
+//! Goal: Determine if pure rotor approach reduces the 2.6x overhead seen in hybrid
 
 use ga_engine::lattice_reduction::lll_baseline::LLL;
 use ga_engine::lattice_reduction::ga_lll_rotors::GA_LLL;
@@ -42,9 +42,9 @@ fn basis_equal(a: &[Vec<f64>], b: &[Vec<f64>], tol: f64) -> bool {
 }
 
 fn main() {
-    println!("╔═══════════════════════════════════════════════════════════════╗");
-    println!("║  CRYPTO 2026 - LLL Three-Way Performance Comparison          ║");
-    println!("╚═══════════════════════════════════════════════════════════════╝");
+    println!("===============================================================");
+    println!("  LLL Three-Way Performance Comparison");
+    println!("===============================================================");
     println!();
     println!("Comparing:");
     println!("  1. Baseline LLL     - Standard GSO (reference)");

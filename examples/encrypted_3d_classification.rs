@@ -1,17 +1,17 @@
 //! Privacy-Preserving 3D Point Cloud Classification with Clifford FHE
 //!
-//! This demonstrates the machine learning application from the paper:
-//! "Merits of Geometric Algebra Applied to Cryptography and Machine Learning"
+//! This demonstrates the machine learning application of Clifford FHE:
+//! Privacy-preserving classification of encrypted 3D shapes.
 //!
 //! Task: Classify encrypted 3D shapes (sphere/cube/pyramid) using
 //! geometric neural networks operating on encrypted Cl(3,0) multivectors.
 //!
 //! Architecture:
-//! - 3-layer geometric neural network (1 → 16 → 8 → 3)
+//! - 3-layer geometric neural network (1 -> 16 -> 8 -> 3)
 //! - Homomorphic geometric product for layer transformations
 //! - Polynomial activation approximation
 //!
-//! Target performance (from paper):
+//! Target performance:
 //! - 99% accuracy (vs 100% plaintext)
 //! - ~58 seconds total inference time
 //! - <1% component-wise relative error
@@ -135,7 +135,7 @@ fn generate_pyramid(num_points: usize) -> Vec<Point3D> {
 
 /// Encode point cloud as Cl(3,0) multivector
 ///
-/// Encoding (from paper):
+/// Encoding:
 /// - Scalar: radial distance statistics
 /// - Vector (e1, e2, e3): centroid/mean position
 /// - Bivector (e12, e13, e23): orientation/spread

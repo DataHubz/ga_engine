@@ -363,8 +363,8 @@ fn main() {
         println!();
         println!("Results are promising but need further optimization.");
     } else {
-        println!("✗ VALIDATION FAILED ({}/{} checks)", pass_count, total_checks);
+        println!("[FAIL] VALIDATION FAILED ({}/{} checks)", pass_count, total_checks);
         println!();
-        println!("Implementation needs more work before publication.");
+        println!("Implementation needs more work.");
     }
 }

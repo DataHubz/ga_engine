@@ -101,11 +101,11 @@ fn main() {
 
     println!("═══════════════════════════════════════════════════════════");
     println!("CONCLUSION");
-    println!("═══════════════════════════════════════════════════════════");
+    println!("===========================================================");
     println!();
     println!("If speedup continues to increase with dimension:");
-    println!("  → GA rotors ARE faster for large-scale problems");
-    println!("  → Paper focus: \"GA for high-dimensional cryptanalysis\"");
+    println!("  -> GA rotors ARE faster for large-scale problems");
+    println!("  -> Focus: GA for high-dimensional cryptanalysis");
     println!();
     println!("Typical cipher dimensions:");
     println!("  - Block ciphers: 64-256 bits (small)");

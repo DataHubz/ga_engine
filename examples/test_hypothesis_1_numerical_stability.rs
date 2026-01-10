@@ -1,4 +1,4 @@
-//! CRYPTO 2026 - Hypothesis 1: Numerical Stability Test
+//! Hypothesis 1: Numerical Stability Test
 //!
 //! **Hypothesis**: Rotor-based GSO has better numerical stability than standard GSO
 //!
@@ -9,7 +9,7 @@
 //! - Orthogonality defect (lower is better)
 //! - Numerical error (if ground truth available)
 //!
-//! **Success Criteria**: GA-LLL numerical error < 0.5× standard LLL error
+//! **Success Criteria**: GA-LLL numerical error < 0.5x standard LLL error
 
 use ga_engine::lattice_reduction::ga_lll_rotors::GA_LLL;
 use ga_engine::lattice_reduction::lll_baseline::LLL;
@@ -51,8 +51,8 @@ fn basis_diff_norm(a: &[Vec<f64>], b: &[Vec<f64>]) -> f64 {
 
 fn main() {
     println!("======================================");
-    println!("CRYPTO 2026 - Hypothesis 1 Test");
-    println!("Numerical Stability: GA-LLL vs LLL");
+    println!("Hypothesis 1: Numerical Stability Test");
+    println!("GA-LLL vs Standard LLL Comparison");
     println!("======================================");
     println!();
 

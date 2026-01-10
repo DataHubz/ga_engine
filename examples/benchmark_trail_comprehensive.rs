@@ -124,15 +124,14 @@ fn main() {
     println!();
 
     if best_speedup >= 1.5 {
-        println!("✓✓ SUCCESS: Found significant speedup (≥1.5×)!");
-        println!("   → Can claim GA provides practical advantage");
-        println!("   → Focus paper on high-dimensional, multi-round scenarios");
+        println!("[OK] SUCCESS: Found significant speedup (>=1.5x)!");
+        println!("   -> Can claim GA provides practical advantage");
+        println!("   -> Focus on high-dimensional, multi-round scenarios");
     } else if best_speedup >= 1.2 {
-        println!("✓ MODERATE: Some speedup achieved (1.2-1.5×)");
-        println!("   → Marginal but real advantage");
-        println!("   → Paper would need careful positioning");
+        println!("[OK] MODERATE: Some speedup achieved (1.2-1.5x)");
+        println!("   -> Marginal but real advantage");
     } else {
-        println!("✗ INSUFFICIENT: No significant speedup found");
-        println!("   → Maximum {:.2}× not compelling for publication", best_speedup);
+        println!("[--] INSUFFICIENT: No significant speedup found");
+        println!("   -> Maximum {:.2}x not compelling", best_speedup);
     }
 }

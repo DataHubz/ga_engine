@@ -212,12 +212,11 @@ fn main() {
     println!("Reality: Measured above across dimensions 10-50");
     println!();
     println!("If rotor wins:");
-    println!("  → Use in BKZ (thousands of updates per reduction)");
-    println!("  → Potential 2-10× speedup for BKZ overall");
-    println!("  → CRYPTO 2026 paper angle!");
+    println!("  -> Use in BKZ (thousands of updates per reduction)");
+    println!("  -> Potential 2-10x speedup for BKZ overall");
     println!();
     println!("If rotor loses:");
-    println!("  → Overhead of rotor construction dominates");
-    println!("  → GA doesn't help even for incremental updates");
-    println!("  → Need to find different application");
+    println!("  -> Overhead of rotor construction dominates");
+    println!("  -> GA doesn't help even for incremental updates");
+    println!("  -> Need to find different application");
 }
