@@ -6,10 +6,11 @@ This document contains performance benchmarks for the GA Engine Clifford FHE imp
 
 1. [V1 vs V2 Core Operations](#v1-vs-v2-core-operations)
 2. [V2 Metal GPU Operations](#v2-metal-gpu-operations)
-3. [GPU Bootstrap Performance](#gpu-bootstrap-performance)
-4. [V4 Packed Operations](#v4-packed-operations)
-5. [V5 Privacy Analysis](#v5-privacy-analysis)
-6. [Detailed Analysis](#detailed-analysis)
+3. [V2 CUDA GPU Operations](#v2-cuda-gpu-operations)
+4. [GPU Bootstrap Performance](#gpu-bootstrap-performance)
+5. [V4 Packed Operations](#v4-packed-operations)
+6. [V5 Privacy Analysis](#v5-privacy-analysis)
+7. [Detailed Analysis](#detailed-analysis)
 
 ## V1 vs V2 Core Operations
 
@@ -74,6 +75,26 @@ cargo run --release --features v2,v2-gpu-metal --example encrypted_metal_demo
 | **Ciphertext Add** | 4.93ms | Element-wise |
 | **Max Error** | 0.000000 | Round-trip accuracy |
 
+## V2 CUDA GPU Operations
+
+### Homomorphic Operations (NVIDIA RTX 4090)
+
+**Command:**
+```bash
+cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v4 --example bench_cuda_all_ops
+```
+
+**Parameters**: N=4096, 4 primes
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| **Encode** | 0.045ms | Plaintext encoding |
+| **Encrypt** | 10.24ms | Full GPU pipeline |
+| **Decrypt** | 4.30ms | Full GPU pipeline |
+| **Ciphertext Add** | 0.11ms | Element-wise |
+| **Ciphertext Multiply** | 327.54ms | With relinearization |
+| **Rotate** | 8.31ms | Galois automorphism |
+
 ## GPU Bootstrap Performance
 
 ### V3 Bootstrap
@@ -116,21 +137,21 @@ cargo run --release --features v2,v2-gpu-metal,v3 --example test_metal_gpu_boots
 - GPU-resident ciphertexts (minimal PCIe transfers)
 - Exact rescaling with Russian peasant `mul_mod_128`
 
-### CUDA GPU Bootstrap (NVIDIA GPU)
+### CUDA GPU Bootstrap (NVIDIA RTX 4090)
 
 **Command:**
 ```bash
-cargo run --release --features v2,v2-gpu-cuda,v3 --example test_cuda_bootstrap
+cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v3 --example bench_cuda_bootstrap
 ```
 
 #### Results
 
 | Operation | Time | Backend | Notes |
 |-----------|------|---------|-------|
-| **CoeffToSlot** | ~0.15s | GPU | Linear transforms + rotations |
-| **EvalMod** | **11.76s** | GPU | Modular reduction with BSGS |
-| **SlotToCoeff** | ~0.04s | GPU | Linear transforms + rotations |
-| **Total Bootstrap** | **11.95s** | **GPU** | **With relinearization** |
+| **CoeffToSlot** | ~0.4s | GPU | Linear transforms + rotations |
+| **EvalMod** | **15.7s** | GPU | Modular reduction with BSGS |
+| **SlotToCoeff** | ~0.3s | GPU | Linear transforms + rotations |
+| **Total Bootstrap** | **16.15s** | **GPU** | **With relinearization** |
 
 **Error**: ~1e-3
 
@@ -147,9 +168,9 @@ cargo run --release --features v2,v2-gpu-cuda,v3 --example test_cuda_bootstrap
 |---------|----------|------------|----------------|-------|
 | **V3 CPU** | Apple M3 Max | ~70s | 1.0× | Reference |
 | **V3 Metal GPU** | Apple M3 Max | 71.37s | ~1× | Entirely GPU |
-| **V3 CUDA GPU** | NVIDIA RTX 4090 | **11.95s** | **5.86×** | **Entirely GPU + Relin** |
+| **V3 CUDA GPU** | NVIDIA RTX 4090 | **16.15s** | **4.3×** | **Entirely GPU + Relin** |
 
-**Key Insight**: CUDA implementation is ~6× faster than Metal on this workload, primarily due to:
+**Key Insight**: CUDA implementation is ~4× faster than Metal on this workload, primarily due to:
 - Different GPU architectures (NVIDIA vs Apple Silicon)
 - Optimized CUDA kernels for FHE operations
 - Efficient relinearization implementation
@@ -183,14 +204,16 @@ cargo run --release --features v4,v2-gpu-cuda --example bench_v4_cuda_geometric_
 | **Key Generation** | Metal (N=1024) | 4.45s | Rotation keys for steps 1-8 |
 | **Packing (8→1)** | Metal (N=1024) | ~0.5s | 8 ciphertexts → 1 |
 | **Geometric Product** | Metal (N=1024) | **3.89s** | On packed data |
-| **Packing (8→1)** | CUDA (N=1024) | 31.38s | One-time per batch |
-| **Geometric Product** | CUDA (N=1024) | 36.84s | On packed data |
-| **Per-MV Cost** | CUDA (batched) | ~36ms | 1024 MVs in parallel |
+| **Packing (8→1)** | CUDA (N=1024) | 0.84s | 8 ciphertexts → 1 |
+| **Unpacking (1→8)** | CUDA (N=1024) | 0.09s | 1 ciphertext → 8 |
+| **Geometric Product** | CUDA (N=1024) | **0.82s** | Quick test, 3 primes |
+| **Geometric Product** | CUDA (N=8192) | **4.62s** | Full test, 9 primes |
+| **Per-MV Cost** | CUDA (N=8192 batched) | ~4.5ms | 1024 MVs in parallel |
 
-**V4 Metal vs V2 CPU Geometric Product:**
+**V4 GPU vs V2 CPU Geometric Product (N=1024):**
 - V2 CPU: 12.98s
-- V4 Metal: 3.89s
-- **Speedup: 3.3×**
+- V4 Metal (M3 Max): 3.89s → **3.3× speedup**
+- V4 CUDA (A40): 0.82s → **15.8× speedup**, 4.7× faster than Metal
 
 ### Memory Comparison
 
@@ -311,17 +334,22 @@ Both Metal and CUDA GPU backends achieve significant speedups through:
 
 ### Bootstrap Operation Breakdown
 
-The bootstrap consists of two main phases (CoeffToSlot + SlotToCoeff):
+The bootstrap consists of three main phases (CoeffToSlot + EvalMod + SlotToCoeff):
 
 1. **CoeffToSlot** - Convert coefficient encoding to slot encoding
    - Linear transformations (matrix multiplications)
    - Rotations via Galois automorphisms
-   - CUDA: ~0.15s, Metal: 59.13s
+   - CUDA: ~0.4s, Metal: 59.13s
 
-2. **SlotToCoeff** - Convert slot encoding back to coefficients
+2. **EvalMod** - Modular reduction (the main bottleneck)
+   - Polynomial approximation of modular reduction
+   - Baby-step giant-step (BSGS) optimization
+   - CUDA: ~15.7s (97% of total), Metal: included in CoeffToSlot
+
+3. **SlotToCoeff** - Convert slot encoding back to coefficients
    - Inverse of CoeffToSlot
    - Linear transformations + rotations
-   - CUDA: ~0.04s, Metal: 12.24s
+   - CUDA: ~0.3s, Metal: 12.24s
 
 **Performance Note**: The Metal backend shows different performance characteristics, with CoeffToSlot taking significantly longer. This is due to:
 - Different GPU memory architectures (discrete vs unified)
@@ -343,14 +371,20 @@ Each homomorphic multiplication requires:
 2. Relinearization (reduce ciphertext size using evaluation key)
 3. Rescaling (manage noise growth)
 
-**Geometric Product Performance (N=1024):**
+**Geometric Product Performance (N=1024, 3 primes):**
+
+| Backend | Time | Speedup | Notes |
+|---------|------|---------|-------|
+| V1 CPU | 13.0s | 1.0× | Baseline |
+| V2 CPU | 12.98s | ~1× | Same algorithm as V1 |
+| V4 Metal GPU (M3 Max) | **3.89s** | **3.3×** | Apple Silicon unified memory |
+| V4 CUDA GPU (A40) | **0.82s** | **15.8×** | Best performance, 4.7× faster than Metal |
+
+**Geometric Product Performance (N=8192, 9 primes):**
 
 | Backend | Time | Notes |
 |---------|------|-------|
-| V1 CPU | 13.0s | Baseline |
-| V2 CPU | 12.98s | ~Same as V1 |
-| V4 Metal GPU | **3.89s** | 3.3× faster than CPU |
-| V4 CUDA GPU | 36.84s | Includes pack/unpack overhead |
+| V4 CUDA GPU (A40) | **4.62s** | Production parameters, 1024 MVs batched |
 
 ## Accuracy Verification
 
@@ -390,7 +424,7 @@ Based on feature flags and current development:
    - Estimated 20-30% additional speedup
 
 3. **EvalMod Optimization** (CUDA)
-   - Current bottleneck: 11.76s / 11.95s = 98% of bootstrap time
+   - Current bottleneck: 15.7s / 16.15s = 97% of bootstrap time
    - Potential: Optimize BSGS polynomial evaluation
    - Potential: Better rotation key caching
    - Target: 30-50% reduction in EvalMod time
