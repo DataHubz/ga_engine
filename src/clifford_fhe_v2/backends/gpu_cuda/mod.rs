@@ -42,7 +42,13 @@ pub mod ciphertext_ops;
 pub mod inversion;
 
 #[cfg(feature = "v2-gpu-cuda")]
+pub mod geometric_product;
+
+#[cfg(feature = "v2-gpu-cuda")]
 pub use geometric::CudaGeometricProduct;
+
+#[cfg(feature = "v2-gpu-cuda")]
+pub use geometric_product::{CudaGeometricProductContext, CudaMultivectorCiphertext};
 
 #[cfg(feature = "v2-gpu-cuda")]
 pub use ckks::{CudaCkksContext, CudaCiphertext, CudaPlaintext};
