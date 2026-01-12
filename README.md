@@ -4,7 +4,7 @@
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-100%25%20passing-brightgreen.svg)](TESTING_GUIDE.md)
 
-A production-grade Rust framework implementing the first fully homomorphic encryption scheme with native geometric algebra support, enabling privacy-preserving computation on encrypted 3D spatial data.
+A production-candidate Rust framework for privacy-preserving computation, combining fully homomorphic encryption (CKKS/RLWE) with native Clifford geometric algebra support. Enables encrypted machine learning on geometric data with GPU acceleration (Metal, CUDA) achieving 2,002× speedup over baseline.
 
 ## Overview
 
@@ -341,11 +341,11 @@ If you use this work, please cite:
 
 ```bibtex
 @software{silva2025gaengine,
-  title={GA Engine: High-Performance Geometric Algebra for Homomorphic Encryption},
+  title={GA Engine: Privacy-Preserving Computation with Geometric Algebra and Homomorphic Encryption},
   author={Silva, David William},
   year={2025},
   url={https://github.com/DataHubz/ga_engine},
-  note={Rust framework implementing Clifford FHE with GPU acceleration (Metal, CUDA)}
+  note={Rust framework for encrypted machine learning combining CKKS FHE, Clifford algebra, and GPU acceleration (Metal, CUDA)}
 }
 ```
 
@@ -389,4 +389,4 @@ Apache License 2.0 - See [LICENSE](LICENSE) file
 | V5 Privacy Analysis | **Complete** | Full |
 | Lattice Reduction | Complete | Full |
 
-**Overall**: Production-candidate framework with comprehensive testing and documentation (~223 tests without lattice reduction, ~283 with lattice reduction).
+**Overall**: Production-candidate framework with comprehensive testing and documentation.
