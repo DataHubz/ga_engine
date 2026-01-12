@@ -428,7 +428,7 @@ Slot Layout (4096 slots, 8 components each):
 |----------|----------------|-------|
 | CPU (Apple M3 Max) | ~70s | Reference implementation |
 | Metal GPU (Apple M3 Max) | 71.37s | 100% GPU execution |
-| CUDA GPU (NVIDIA A40) | **16.15s** | **4.3× faster than CPU** |
+| CUDA GPU (NVIDIA RTX 4090) | **11.69s** | **6× faster than CPU** |
 
 See [BENCHMARKS.md](BENCHMARKS.md) for detailed breakdown.
 

@@ -21,7 +21,7 @@ The framework achieves **production-candidate performance** through systematic o
 - **≥118-bit post-quantum security**: Verified using Lattice Estimator against primal, dual, and hybrid attacks
 - **Production-grade RNS-CKKS foundation**: Multi-prime modulus chain enabling deep computation circuits
 - **Full bootstrapping implementation** (V3): Unlimited multiplication depth through homomorphic noise refresh
-  - **CUDA GPU**: **16.15s** bootstrap (4.3× faster than CPU, 100% GPU execution with relinearization)
+  - **CUDA GPU**: **11.69s** bootstrap (6× faster than CPU, 100% GPU execution with relinearization)
   - **Metal GPU**: 71.37s bootstrap (100% GPU execution)
   - **CPU**: ~70s bootstrap (reference implementation)
 
@@ -36,29 +36,29 @@ The framework achieves **production-candidate performance** through systematic o
 | V2 Metal GPU | Apple M3 Max GPU | 33 ms | 346× | 30.3 ops/sec |
 | **V2 CUDA GPU** | **NVIDIA RTX 5090** | **5.7 ms** | **2,002×** | **175 ops/sec** |
 
-#### CUDA GPU Benchmark Results (NVIDIA A40)
+#### CUDA GPU Benchmark Results (NVIDIA RTX 4090)
 
 **Core Homomorphic Operations** (N=4096, 4 primes):
 
 | Operation | Time | Throughput |
 |-----------|------|------------|
-| **Encode** | 0.045 ms | 22,222 ops/sec |
-| **Encrypt** | 10.24 ms | 98 ops/sec |
-| **Decrypt** | 4.30 ms | 233 ops/sec |
-| **Add (ct+ct)** | 0.11 ms | 9,091 ops/sec |
-| **Multiply (ct×ct)** | 327.54 ms | 3.1 ops/sec |
-| **Rotate (1 slot)** | 8.31 ms | 120 ops/sec |
+| **Encode** | 0.029 ms | 34,483 ops/sec |
+| **Encrypt** | 7.89 ms | 127 ops/sec |
+| **Decrypt** | 3.47 ms | 288 ops/sec |
+| **Add (ct+ct)** | 0.079 ms | 12,658 ops/sec |
+| **Multiply (ct×ct)** | 286.35 ms | 3.5 ops/sec |
+| **Rotate (1 slot)** | 6.5-6.8 ms | 150 ops/sec |
 
-**Homomorphic Division** (Newton-Raphson, N=4096):
-- Average time: **931 ms** per division
+**Homomorphic Division** (Goldschmidt, N=4096):
+- Average time: **1.37s** per division
 - CPU comparison: ~8,000 ms
-- **Speedup: 8.6×**
+- **Speedup: 5.8×**
 
-**V4 Geometric Product** (Packed Multivector Layout, NVIDIA A40):
+**V4 Geometric Product** (Packed Multivector Layout, NVIDIA RTX 4090):
 | Configuration | Time | Notes |
 |---------------|------|-------|
-| N=1024 (quick) | **0.82s** | 15.8× faster than CPU, 4.7× faster than Metal |
-| N=8192 (full) | **4.62s** | Production parameters, 1024 MVs batched |
+| N=1024 (quick) | **0.588s** | 22× faster than CPU, 6.6× faster than Metal |
+| N=8192 (full) | **3.40s** | Production parameters, 1024 MVs batched |
 
 #### Bootstrap Performance (V3 Full Bootstrap)
 
@@ -66,13 +66,13 @@ The framework achieves **production-candidate performance** through systematic o
 |---------|----------|------------|----------------|--------|
 | V3 CPU | Apple M3 Max | ~70s | 1× | Reference |
 | V3 Metal GPU | Apple M3 Max | 71.37s | ~1× | Production Stable |
-| **V3 CUDA GPU** | **NVIDIA A40** | **16.15s** | **4.3×** | **Production Stable** |
+| **V3 CUDA GPU** | **NVIDIA RTX 4090** | **11.69s** | **6×** | **Production Stable** |
 
 **V3 CUDA GPU Bootstrap Breakdown** (N=1024, 20 primes):
 - CoeffToSlot: ~0.4s (linear transforms + rotations)
-- **EvalMod: ~15.7s** (97% of total - polynomial sine approximation)
+- **EvalMod: ~11.3s** (97% of total - polynomial sine approximation)
 - SlotToCoeff: ~0.3s (inverse transforms)
-- Throughput: **~4 bootstraps/minute**
+- Throughput: **~5 bootstraps/minute**
 - Error: ~1e-3
 - Full relinearization support
 - 100% GPU execution (no CPU fallback)
@@ -115,7 +115,7 @@ The framework achieves **production-candidate performance** through systematic o
 - **Purpose**: Deep neural networks, complex circuits, production ML deployment
 - **Status**: Complete and validated, 52/52 tests passing (100%)
 - **Performance**:
-  - CUDA GPU: **16.15s bootstrap** (4.3× faster than CPU, NVIDIA A40)
+  - CUDA GPU: **11.69s bootstrap** (6× faster than CPU, NVIDIA RTX 4090)
   - Metal GPU: 71.37s bootstrap
   - CPU: ~70s bootstrap (reference)
 - **Architecture**: **V3 uses V2 backend** (not backend-agnostic)
@@ -134,8 +134,8 @@ The framework achieves **production-candidate performance** through systematic o
 - **Purpose**: Memory-efficient geometric operations, SIMD slot packing for multivectors
 - **Status**: Complete with Metal and CUDA GPU backends, validated with production tests
 - **Performance**:
-  - **CUDA GPU (N=1024)**: 0.82s per packed geometric product (15.8× faster than CPU)
-  - **CUDA GPU (N=8192)**: 4.62s per packed geometric product (production parameters)
+  - **CUDA GPU (N=1024)**: 0.588s per packed geometric product (22× faster than CPU)
+  - **CUDA GPU (N=8192)**: 3.40s per packed geometric product (production parameters)
   - **Metal GPU (N=1024)**: 3.89s per packed geometric product
 - **Architecture**: **V4 uses V2 backend** (builds on V2 GPU infrastructure)
   - V4 provides packing/unpacking operations (slot-interleaved layout)
@@ -310,11 +310,11 @@ See [TESTING_GUIDE.md](TESTING_GUIDE.md) for comprehensive testing instructions.
 
 **Results**:
 - **Accuracy**: 99% on encrypted 3D point clouds (100 points/sample)
-- **Latency** (NVIDIA A40):
-  - Ciphertext addition: 0.11ms
-  - Ciphertext multiplication: 327ms
-  - Rotation: 8.31ms
-  - With bootstrap: **16.15s** refresh (V3 CUDA GPU)
+- **Latency** (NVIDIA RTX 4090):
+  - Ciphertext addition: 0.079ms
+  - Ciphertext multiplication: 286ms
+  - Rotation: 6.5ms
+  - With bootstrap: **11.69s** refresh (V3 CUDA GPU)
 - **Error**: <10⁻⁶ relative precision maintained throughout computation
 - **Privacy**: Zero-knowledge inference—server never observes plaintext data or model weights
 

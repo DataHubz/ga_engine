@@ -88,12 +88,14 @@ cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v4 --
 
 | Operation | Time | Notes |
 |-----------|------|-------|
-| **Encode** | 0.045ms | Plaintext encoding |
-| **Encrypt** | 10.24ms | Full GPU pipeline |
-| **Decrypt** | 4.30ms | Full GPU pipeline |
-| **Ciphertext Add** | 0.11ms | Element-wise |
-| **Ciphertext Multiply** | 327.54ms | With relinearization |
-| **Rotate** | 8.31ms | Galois automorphism |
+| **Encode** | 0.029ms | Plaintext encoding |
+| **Encrypt** | 7.89ms | Full GPU pipeline |
+| **Decrypt** | 3.47ms | Full GPU pipeline |
+| **Ciphertext Add** | 0.079ms | Element-wise |
+| **Ciphertext Multiply** | 286.35ms | With relinearization |
+| **Multiply Plain** | 0.41ms | Ciphertext × plaintext |
+| **Rotate** | 6.5-6.8ms | Galois automorphism |
+| **Rescale** | 0.54ms | Level reduction |
 
 ## GPU Bootstrap Performance
 
@@ -149,9 +151,9 @@ cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v3 --
 | Operation | Time | Backend | Notes |
 |-----------|------|---------|-------|
 | **CoeffToSlot** | ~0.4s | GPU | Linear transforms + rotations |
-| **EvalMod** | **15.7s** | GPU | Modular reduction with BSGS |
+| **EvalMod** | **11.3s** | GPU | Modular reduction with BSGS |
 | **SlotToCoeff** | ~0.3s | GPU | Linear transforms + rotations |
-| **Total Bootstrap** | **16.15s** | **GPU** | **With relinearization** |
+| **Total Bootstrap** | **11.69s** | **GPU** | **With relinearization** |
 
 **Error**: ~1e-3
 
@@ -168,9 +170,9 @@ cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v3 --
 |---------|----------|------------|----------------|-------|
 | **V3 CPU** | Apple M3 Max | ~70s | 1.0× | Reference |
 | **V3 Metal GPU** | Apple M3 Max | 71.37s | ~1× | Entirely GPU |
-| **V3 CUDA GPU** | NVIDIA RTX 4090 | **16.15s** | **4.3×** | **Entirely GPU + Relin** |
+| **V3 CUDA GPU** | NVIDIA RTX 4090 | **11.69s** | **6.0×** | **Entirely GPU + Relin** |
 
-**Key Insight**: CUDA implementation is ~4× faster than Metal on this workload, primarily due to:
+**Key Insight**: CUDA implementation is ~6× faster than Metal on this workload, primarily due to:
 - Different GPU architectures (NVIDIA vs Apple Silicon)
 - Optimized CUDA kernels for FHE operations
 - Efficient relinearization implementation
@@ -204,16 +206,16 @@ cargo run --release --features v4,v2-gpu-cuda --example bench_v4_cuda_geometric_
 | **Key Generation** | Metal (N=1024) | 4.45s | Rotation keys for steps 1-8 |
 | **Packing (8→1)** | Metal (N=1024) | ~0.5s | 8 ciphertexts → 1 |
 | **Geometric Product** | Metal (N=1024) | **3.89s** | On packed data |
-| **Packing (8→1)** | CUDA (N=1024) | 0.84s | 8 ciphertexts → 1 |
-| **Unpacking (1→8)** | CUDA (N=1024) | 0.09s | 1 ciphertext → 8 |
-| **Geometric Product** | CUDA (N=1024) | **0.82s** | Quick test, 3 primes |
-| **Geometric Product** | CUDA (N=8192) | **4.62s** | Full test, 9 primes |
-| **Per-MV Cost** | CUDA (N=8192 batched) | ~4.5ms | 1024 MVs in parallel |
+| **Packing (8→1)** | CUDA (N=1024) | 0.734s | 8 ciphertexts → 1 |
+| **Unpacking (1→8)** | CUDA (N=1024) | 0.067s | 1 ciphertext → 8 |
+| **Geometric Product** | CUDA (N=1024) | **0.588s** | Quick test, 3 primes |
+| **Geometric Product** | CUDA (N=8192) | **3.40s** | Full test, 9 primes |
+| **Per-MV Cost** | CUDA (N=8192 batched) | ~3.3ms | 1024 MVs in parallel |
 
 **V4 GPU vs V2 CPU Geometric Product (N=1024):**
 - V2 CPU: 12.98s
 - V4 Metal (M3 Max): 3.89s → **3.3× speedup**
-- V4 CUDA (A40): 0.82s → **15.8× speedup**, 4.7× faster than Metal
+- V4 CUDA (RTX 4090): 0.588s → **22.1× speedup**, 6.6× faster than Metal
 
 ### Memory Comparison
 
@@ -235,6 +237,17 @@ cargo run --release --features v4,v2-gpu-cuda --example bench_v4_cuda_geometric_
 **Use V4 when**: Processing batches of multivectors, memory-constrained environments, SIMD-style operations.
 
 **Use V2 when**: Single multivector operations, low-latency requirements, interactive applications.
+
+### Division Operations (CUDA)
+
+**Command:**
+```bash
+cargo run --release --no-default-features --features f64,nd,v2,v2-gpu-cuda,v4 --example bench_division_cuda_gpu
+```
+
+| Operation | Backend | Time | Notes |
+|-----------|---------|------|-------|
+| **Division** | CUDA (RTX 4090) | **1.37s** | Goldschmidt iteration |
 
 ## V5 Privacy Analysis
 
@@ -377,14 +390,22 @@ Each homomorphic multiplication requires:
 |---------|------|---------|-------|
 | V1 CPU | 13.0s | 1.0× | Baseline |
 | V2 CPU | 12.98s | ~1× | Same algorithm as V1 |
+| V2 CUDA GPU (RTX 4090) | 1.395s | 9.3× | Single product |
+| V3 Batched CUDA (RTX 4090) | 1.519s total | 12.48× per | 64 products in 23.73ms each |
 | V4 Metal GPU (M3 Max) | **3.89s** | **3.3×** | Apple Silicon unified memory |
-| V4 CUDA GPU (A40) | **0.82s** | **15.8×** | Best performance, 4.7× faster than Metal |
+| V4 CUDA GPU (RTX 4090) | **0.588s** | **22.1×** | Best performance, 6.6× faster than Metal |
 
 **Geometric Product Performance (N=8192, 9 primes):**
 
 | Backend | Time | Notes |
 |---------|------|-------|
-| V4 CUDA GPU (A40) | **4.62s** | Production parameters, 1024 MVs batched |
+| V4 CUDA GPU (RTX 4090) | **3.40s** | Production parameters, 1024 MVs batched |
+
+**V3 Batched Geometric Product Breakdown (RTX 4090):**
+- Total time for 64 products: 1.519s
+- Per-product time: 23.73ms
+- Effective speedup: **12.48× per product** vs sequential
+- This demonstrates the efficiency of batched operations in FHE
 
 ## Accuracy Verification
 
@@ -424,7 +445,7 @@ Based on feature flags and current development:
    - Estimated 20-30% additional speedup
 
 3. **EvalMod Optimization** (CUDA)
-   - Current bottleneck: 15.7s / 16.15s = 97% of bootstrap time
+   - Current bottleneck: 11.3s / 11.69s = 97% of bootstrap time
    - Potential: Optimize BSGS polynomial evaluation
    - Potential: Better rotation key caching
    - Target: 30-50% reduction in EvalMod time
