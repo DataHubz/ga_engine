@@ -185,8 +185,12 @@ pub fn unpack_multivector_butterfly(
 ) -> Result<[Ciphertext; 8], String> {
     let packed_ct = &packed.ct;
 
-    // Get moduli for negation operations (use params() accessor)
+    // Get moduli for negation operations
+    // Note: On CUDA, params() is a method; on Metal, params is a public field
+    #[cfg(feature = "v2-gpu-cuda")]
     let moduli = &ckks_ctx.params().moduli[..=packed.level];
+    #[cfg(feature = "v2-gpu-metal")]
+    let moduli = &ckks_ctx.params.moduli[..=packed.level];
 
     // Stage 1: Split into halves (rotation by 4)
     let rot4 = packed_ct.rotate_by_steps(4, rot_keys, ckks_ctx)?;
