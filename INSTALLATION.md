@@ -177,6 +177,39 @@ cargo run --release --features v2,v3 --example test_v3_full_bootstrap
 # - Error: ~3.6e-3
 ```
 
+#### Option G: V5 Privacy Analysis (Standalone)
+
+V5 provides **execution-trace collection and privacy analysis** for researching side-channel leakage in FHE computations.
+
+```bash
+# Build V5 (standalone, no GPU required)
+cargo build --release --features v5
+
+# Run comprehensive attack suite
+cargo run --release --features v5 --example v5_privacy_attacks
+
+# Run dimension inference attack only
+cargo run --release --features v5 --example v5_dimension_attack
+
+# Expected results:
+# - CliffordFHE: 0% information leakage (dimension inference)
+# - CKKS baseline: 100% information leakage
+# - CliffordFHE wins 4 attacks, ties 2
+```
+
+**V5 with GPU tracing:**
+```bash
+# V5 with Metal GPU tracing (Apple Silicon)
+cargo build --release --features v5,v2-gpu-metal
+cargo run --release --features v5,v2-gpu-metal --example v5_trace_collector -- --metal
+
+# V5 with CUDA GPU tracing (NVIDIA)
+cargo build --release --features v5,v2-gpu-cuda
+cargo run --release --features v5,v2-gpu-cuda --example v5_trace_collector -- --cuda
+```
+
+**Note**: V5 is standalone and does NOT require V2 (unlike V3/V4). GPU tracing is optional for collecting execution traces on GPU backends.
+
 ## Verification
 
 ### Quick Test
@@ -222,8 +255,11 @@ cargo test --lib --features v2
 # V3 Bootstrapping (52 tests - 100% passing)
 cargo test --lib --features v2,v3 clifford_fhe_v3
 
-# All versions (V1 + V2 + V3 = ~210 tests without lattice-reduction)
-cargo test --lib --features v1,v2,v3
+# V5 Privacy Analysis (~10 tests)
+cargo test --lib --features v5 clifford_fhe_v5
+
+# All versions (V1 + V2 + V3 + V5 = ~223 tests without lattice-reduction)
+cargo test --lib --features v1,v2,v3,v5
 ```
 
 ## Troubleshooting
@@ -449,7 +485,8 @@ If performance is significantly slower, check:
 1. **Start with V2 CPU** to verify basic functionality
 2. **Add GPU backend** (Metal or CUDA) for performance
 3. **Run V3 bootstrap** to test full implementation
-4. **Check benchmarks** to ensure performance matches expectations
+4. **Run V5 privacy analysis** to verify privacy guarantees
+5. **Check benchmarks** to ensure performance matches expectations
 
 ## Support
 

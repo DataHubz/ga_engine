@@ -14,7 +14,7 @@ Start here:
 ### For Developers
 
 Learn the system:
-1. **[CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md)** - Complete V1-V4 technical history
+1. **[CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md)** - Complete V1-V5 technical history
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** - System design and structure
 3. **[FEATURE_FLAGS.md](FEATURE_FLAGS.md)** - Build configuration options
 
@@ -42,6 +42,7 @@ Optimize your usage:
   - V2: Production CKKS backend
   - V3: Full bootstrap (8× expansion)
   - V4: Packed slot-interleaved (no expansion)
+  - V5: Privacy-trace collection and analysis
   - Performance comparisons
   - Implementation status matrix
 
@@ -103,6 +104,13 @@ Optimize your usage:
 1. [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) - Version 4 section
 2. [ARCHITECTURE.md](ARCHITECTURE.md) - V4 architecture details
 
+### "I want to understand the V5 privacy analysis"
+
+**Read**:
+1. [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) - Version 5 section
+2. [ARCHITECTURE.md](ARCHITECTURE.md) - V5 architecture details
+3. [BENCHMARKS.md](BENCHMARKS.md) - V5 Privacy Analysis section
+
 ### "I want to see performance numbers"
 
 **Check**:
@@ -149,18 +157,27 @@ Optimize your usage:
 
 **Summary**: Pack 8 multivector components into 1 ciphertext, eliminating 8× expansion
 
+### What is V5 Privacy Analysis?
+
+**See**: [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) - Version 5 section
+
+**Summary**: Execution trace collection and analysis framework for security research. Implements six attack vectors to measure information leakage. CliffordFHE achieves information-theoretic privacy (0 bits leaked) vs CKKS (2.585 bits leaked).
+
 ## Version Comparison Quick Reference
 
-| Feature | V1 | V2 | V3 | V4 |
-|---------|----|----|----|----|
-| Status | Deprecated | Production | Production | Production |
-| Backend | CPU only | CPU/Metal/CUDA | CPU/Metal/CUDA | CPU/Metal/CUDA |
-| Ciphertexts per MV | 8 | 8 | 8 | **1** |
-| Bootstrap | No | No | Yes | Planned |
-| Memory Cost | High | High | High | **Low (8× savings)** |
-| Use Case | Proof of concept | Base operations | Full computation | **Batch operations** |
+| Feature | V1 | V2 | V3 | V4 | V5 |
+|---------|----|----|----|----|-----|
+| Status | Deprecated | Production | Production | Production | Production |
+| Backend | CPU only | CPU/Metal/CUDA | CPU/Metal/CUDA | CPU/Metal/CUDA | CPU only |
+| Ciphertexts per MV | 8 | 8 | 8 | **1** | N/A |
+| Bootstrap | No | No | Yes | Planned | N/A |
+| Memory Cost | High | High | High | **Low (8× savings)** | Low |
+| Use Case | Proof of concept | Base operations | Full computation | **Batch operations** | **Privacy analysis** |
+| Standalone | No | Yes | No (needs V2) | No (needs V2) | **Yes** |
 
-**Recommendation**: Use V4 for new applications requiring batch processing and memory efficiency.
+**Recommendation**:
+- Use V4 for new applications requiring batch processing and memory efficiency.
+- Use V5 for privacy analysis and security research.
 
 ## Platform-Specific Notes
 
@@ -212,7 +229,13 @@ cargo run --release --features v4,v2-cpu-optimized --example test_v4_geometric_p
 → [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) - Security Analysis section
 
 **Q: Can I use this in production?**
-→ Yes, V2/V3/V4 are production-ready. See [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) for status
+→ Yes, V2/V3/V4/V5 are production-ready. See [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) for status
+
+**Q: How does CliffordFHE compare to CKKS for privacy?**
+→ [BENCHMARKS.md](BENCHMARKS.md) - V5 Privacy Analysis section. CliffordFHE leaks 0 bits; CKKS leaks 2.585 bits.
+
+**Q: What is V5 used for?**
+→ Privacy research and security analysis. See [CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md) - Version 5 section
 
 **Q: Where's the code for feature X?**
 → [ARCHITECTURE.md](ARCHITECTURE.md) - Module organization
@@ -248,7 +271,7 @@ When adding new features:
 
 **CLIFFORD_FHE_VERSIONS.md** is the **comprehensive technical reference**:
 - Links to all other docs for specific topics
-- Provides full V1-V4 history
+- Provides full V1-V5 history
 - Contains performance comparisons
 - Shows implementation status
 

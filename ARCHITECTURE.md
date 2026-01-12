@@ -2,12 +2,13 @@
 
 ## Overview
 
-The GA Engine implements Clifford Homomorphic Encryption with **four parallel implementations**:
+The GA Engine implements Clifford Homomorphic Encryption with **five parallel implementations**:
 
 - **V1:** Research prototype (deprecated, stable baseline)
 - **V2:** GPU-accelerated backend (CPU + Metal + CUDA)
 - **V3:** Full bootstrap implementation (unlimited depth)
 - **V4:** Packed slot-interleaved layout (8× memory reduction)
+- **V5:** Privacy-trace collection and analysis framework
 
 ## Directory Structure
 
@@ -82,13 +83,26 @@ src/
 │   ├── params.rs              # V3-optimized parameters
 │   └── prime_gen.rs           # Dynamic NTT-friendly prime generation
 │
-└── clifford_fhe_v4/           # V4 - Packed Slot-Interleaved
-    ├── mod.rs                 # Module exports with feature gating
-    ├── multivector.rs         # PackedMultivector type
-    ├── packing.rs             # Metal/CPU packing (1-param encode)
-    ├── packing_cuda.rs        # CUDA packing (3-param encode)
-    ├── packing_butterfly.rs   # Shared butterfly algorithm
-    └── geometric_ops.rs       # Packed geometric operations
+├── clifford_fhe_v4/           # V4 - Packed Slot-Interleaved
+│   ├── mod.rs                 # Module exports with feature gating
+│   ├── multivector.rs         # PackedMultivector type
+│   ├── packing.rs             # Metal/CPU packing (1-param encode)
+│   ├── packing_cuda.rs        # CUDA packing (3-param encode)
+│   ├── packing_butterfly.rs   # Shared butterfly algorithm
+│   └── geometric_ops.rs       # Packed geometric operations
+│
+└── clifford_fhe_v5/           # V5 - Privacy-Trace Collection
+    ├── mod.rs                 # Module exports
+    ├── trace_collector.rs     # Execution trace instrumentation
+    ├── trace_types.rs         # TraceEvent, TraceMetadata types
+    ├── attacks/               # Privacy attack implementations
+    │   ├── branching.rs       # Branching pattern analysis
+    │   ├── rotation.rs        # Rotation pattern analysis
+    │   ├── depth.rs           # Depth pattern analysis
+    │   └── timing.rs          # Timing side-channel analysis
+    └── mitigations/           # Countermeasure implementations
+        ├── oblivious.rs       # Oblivious operation patterns
+        └── padding.rs         # Trace padding strategies
 ```
 
 ## Feature Flags
@@ -104,6 +118,7 @@ v1 = []                        # Deprecated research implementation
 v2 = []                        # GPU backend (CPU + Metal + CUDA)
 v3 = ["v2"]                    # Full bootstrap (uses V2 backend)
 v4 = ["v2"]                    # Packed layout (uses V2 backend)
+v5 = []                        # Privacy-trace collection (standalone)
 
 # V2 backends (requires v2)
 v2-cpu-optimized = ["v2"]           # CPU with NTT
@@ -195,7 +210,7 @@ All these operations are entirely GPU-resident (no CPU fallback in hot path).
 
 **Purpose:** Production-quality CKKS implementation, multi-platform GPU support
 
-**Status:** Production Ready
+**Status:** Production Candidate
 
 **Backends:**
 1. **CPU (cpu_optimized/)**: SIMD, Rayon parallelization, Harvey butterfly NTT
@@ -214,11 +229,14 @@ All these operations are entirely GPU-resident (no CPU fallback in hot path).
 - GPU memory coalescing (CUDA strided layout)
 - Unified memory architecture (Metal)
 
+**Advanced Operations:**
+- Homomorphic division via Newton-Raphson iteration (6 iterations, depth 7)
+
 ### V3: Full Bootstrap Implementation
 
 **Purpose:** Unlimited circuit depth via noise refresh
 
-**Status:** Production Ready
+**Status:** Production Candidate
 
 **Architecture:** Uses V2 backend infrastructure
 
@@ -242,7 +260,7 @@ All these operations are entirely GPU-resident (no CPU fallback in hot path).
 
 **Purpose:** Memory-efficient geometric operations, batch processing
 
-**Status:** Production Ready (Metal + CUDA)
+**Status:** Production Candidate (Metal + CUDA)
 
 **Key Innovation:** Pack all 8 multivector components into **1 ciphertext**
 
@@ -305,6 +323,29 @@ CudaCiphertext {
 - Batch of 1024 MVs: **1024× throughput** improvement
 
 **Use Case:** Batch processing, memory-constrained environments, SIMD operations
+
+### V5: Privacy-Trace Collection and Analysis
+
+**Purpose:** Research framework for execution-trace privacy analysis
+
+**Status:** Research / Paper Support
+
+**Architecture:** Standalone instrumentation layer (works with V2-V4)
+
+**Components:**
+1. **Trace Collector:** Instruments FHE operations to capture execution patterns
+2. **Attack Implementations:**
+   - Branching pattern analysis (data-dependent control flow)
+   - Rotation pattern analysis (slot access patterns)
+   - Depth pattern analysis (multiplicative depth fingerprinting)
+   - Timing side-channel analysis
+3. **Mitigation Strategies:**
+   - Oblivious operation patterns (constant-time execution)
+   - Trace padding (dummy operations for uniformity)
+
+**Key Insight:** Even with encrypted data, execution traces can leak information about the computation structure, enabling inference attacks on the underlying algorithm or data characteristics.
+
+**Use Case:** Security research, privacy analysis, academic paper support
 
 ## Key Components
 
@@ -548,12 +589,18 @@ See [BENCHMARKS.md](BENCHMARKS.md) for detailed performance analysis.
 - Note: Ensure V2 backend has needed rotation operations first
 - Note: Maintain synchronization of `level` and `num_primes` fields
 
+### V5 - Privacy Research
+- Execution trace analysis
+- Attack implementation and validation
+- Mitigation strategy development
+- Paper-supporting experiments
+
 ## Documentation
 
 ### Core Documentation
 
 - **[README.md](README.md)** - Project overview, quick start
-- **[CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md)** - Complete V1-V4 technical history
+- **[CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md)** - Complete V1-V5 technical history
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - This file (system architecture)
 - **[INSTALLATION.md](INSTALLATION.md)** - Setup instructions
 - **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Testing procedures
@@ -568,14 +615,15 @@ See [BENCHMARKS.md](BENCHMARKS.md) for detailed performance analysis.
 - All 7 geometric operations
 - Correctness validated
 
-### V2 (Production)
+### V2 (Production Candidate)
 - Three backends: CPU, Metal GPU, CUDA GPU
 - NTT optimization (10-100× speedup)
 - Rotation operations
 - Relinearization keys
+- Homomorphic division (Newton-Raphson)
 - Foundation for V3/V4
 
-### V3 (Production)
+### V3 (Production Candidate)
 - Full bootstrap implementation
 - Dynamic prime generation
 - CPU reference implementation
@@ -583,13 +631,19 @@ See [BENCHMARKS.md](BENCHMARKS.md) for detailed performance analysis.
 - CUDA GPU implementation (~11.95s)
 - Unlimited computation depth
 
-### V4 (Production)
+### V4 (Production Candidate)
 - Packed slot-interleaved layout
 - 8× memory reduction
 - Butterfly network packing
 - Metal backend complete
 - CUDA backend complete
 - Batch processing (1024× throughput)
+
+### V5 (Research)
+- Execution-trace privacy analysis framework
+- Four attack categories implemented
+- Mitigation strategies documented
+- Research paper experiments
 
 ## Future Work
 

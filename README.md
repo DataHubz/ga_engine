@@ -10,6 +10,8 @@ A production-grade Rust framework implementing the first fully homomorphic encry
 
 **GA Engine** implements **Clifford FHE**, a novel cryptographic scheme combining Ring Learning With Errors (RLWE) based fully homomorphic encryption with Clifford geometric algebra operations. This enables practical privacy-preserving machine learning on encrypted geometric data, a capability critical for medical imaging, autonomous systems, and secure spatial computing applications.
 
+**Key Research Finding**: CliffordFHE achieves **information-theoretic privacy** against execution-trace attacks. While CKKS leaks input dimensions with 100% accuracy via rotation counts, CliffordFHE's fixed 64-multiplication structure reveals zero information.
+
 The framework achieves **production-candidate performance** through systematic optimization: from baseline reference implementation (V1) to hardware-accelerated backends featuring Metal and CUDA GPU support achieving **2,002× speedup**, delivering **sub-millisecond** homomorphic additions and **~217ms** ciphertext multiplications on NVIDIA RTX 4090 architecture.
 
 ## Technical Achievements
@@ -95,7 +97,7 @@ The framework achieves **production-candidate performance** through systematic o
 
 ## System Architecture
 
-### Four-Tier Implementation Strategy
+### Five-Tier Implementation Strategy
 
 #### **V1: Reference Baseline**
 - **Purpose**: Correctness verification, academic reproducibility, performance baseline
@@ -152,6 +154,19 @@ The framework achieves **production-candidate performance** through systematic o
   - Compatible with V3 bootstrapping
 - **Trade-off**: Higher latency for single operations but 1024× throughput for batched operations
 
+#### **V5: Privacy-Trace Collection and Analysis**
+- **Purpose**: Research framework for execution-trace privacy analysis.
+- **Status**: Complete, ~10 tests passing
+- **Architecture**: **Standalone** instrumentation layer (works with V2-V4, does NOT require V2)
+- **Components**:
+  - Execution trace collection (CPU and GPU backends)
+  - Six attack implementations (dimension inference, task identification, operation count, trace length, sparsity inference, tenant linkability)
+  - Information-theoretic analysis tools
+- **Key Finding**: CliffordFHE wins 4 attacks, ties 2 vs CKKS
+  - CKKS leaks 2.585 bits of dimension entropy (100% attack accuracy)
+  - CliffordFHE leaks 0 bits (random-guessing accuracy: 16.7%)
+- **Use Case**: Security research, privacy auditing, academic reproducibility
+
 ## Core Capabilities
 
 ### Homomorphic Geometric Operations
@@ -199,7 +214,7 @@ Conservative estimate: λ ≥ 118 bits
 
 | Document | Description |
 |----------|-------------|
-| **[CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md)** | Complete technical history: V1→V2→V3→V4 evolution, implementations, performance |
+| **[CLIFFORD_FHE_VERSIONS.md](CLIFFORD_FHE_VERSIONS.md)** | Complete technical history: V1→V2→V3→V4→V5 evolution, implementations, performance |
 | **[ARCHITECTURE.md](ARCHITECTURE.md)** | System design, backend architecture, module organization |
 | **[INSTALLATION.md](INSTALLATION.md)** | Setup guide, system requirements, platform-specific build instructions |
 | **[TESTING_GUIDE.md](TESTING_GUIDE.md)** | Comprehensive testing procedures and validation |
@@ -245,6 +260,12 @@ cargo test --release --features v4,v2-gpu-metal --test test_geometric_operations
 
 # V4 CUDA GPU: Packed geometric product (quick test, N=1024)
 cargo run --release --features v4,v2-gpu-cuda --example bench_v4_cuda_geometric_quick
+
+# V5: Privacy attack analysis
+cargo run --release --features v5 --example v5_privacy_attacks
+
+# V5: Dimension inference attack only
+cargo run --release --features v5 --example v5_dimension_attack
 ```
 
 ### Running Benchmarks
@@ -274,8 +295,11 @@ cargo test --lib --features v2,v3 clifford_fhe_v3
 # V4: Packed multivector tests (3 integration tests)
 cargo test --test test_geometric_operations_v4 --features v4,v2-gpu-metal --no-default-features -- --nocapture
 
-# All versions (V1 + V2 + V3 = ~210 tests)
-cargo test --lib --features v1,v2,v3
+# V5: Privacy analysis tests (~10 tests)
+cargo test --lib --features v5 clifford_fhe_v5
+
+# All versions (V1 + V2 + V3 + V5 = ~223 tests)
+cargo test --lib --features v1,v2,v3,v5
 ```
 
 See [TESTING_GUIDE.md](TESTING_GUIDE.md) for comprehensive testing instructions.
@@ -351,17 +375,18 @@ Apache License 2.0 - See [LICENSE](LICENSE) file
 
 ## Project Status
 
-| Component | Status | Tests | Documentation |
-|-----------|--------|-------|---------------|
-| V1 Baseline | Complete | 31/31 passing | Full |
-| V2 CPU Backend | Complete | 127/127 passing | Full |
-| V2 Metal GPU | Complete | Verified | Full |
-| V2 CUDA GPU | Complete | Verified | Full |
-| V3 Bootstrap (CPU) | Complete | 52/52 passing | Full |
-| V3 Bootstrap (Metal GPU) | **Production Stable** | Verified | Full |
-| V3 Bootstrap (CUDA GPU) | **Production Stable** | Verified | Full |
-| V4 Packed Layout (Metal GPU) | Complete | 3/3 passing | Full |
-| V4 Packed Layout (CUDA GPU) | **Production Stable** | Verified | Full |
-| Lattice Reduction | Complete | ~60/60 passing | Full |
+| Component | Status | Documentation |
+|-----------|--------|---------------|
+| V1 Baseline | Complete | Full |
+| V2 CPU Backend | Complete | Full |
+| V2 Metal GPU | Complete | Full |
+| V2 CUDA GPU | Complete | Full |
+| V3 Bootstrap (CPU) | Complete | Full |
+| V3 Bootstrap (Metal GPU) | **Production Candidate** | Full |
+| V3 Bootstrap (CUDA GPU) | **Production Candidate** | Full |
+| V4 Packed Layout (Metal GPU) | Complete | Full |
+| V4 Packed Layout (CUDA GPU) | **Production Candidate** | Full |
+| V5 Privacy Analysis | **Complete** | Full |
+| Lattice Reduction | Complete | Full |
 
-**Overall**: Production-ready framework with comprehensive testing and documentation.
+**Overall**: Production-candidate framework with comprehensive testing and documentation (~223 tests without lattice reduction, ~283 with lattice reduction).

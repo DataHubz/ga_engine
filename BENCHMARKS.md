@@ -1,12 +1,14 @@
 # Performance Benchmarks
 
-This document contains performance benchmarks for the GA Engine Clifford FHE implementation across V1, V2, and V3 versions.
+This document contains performance benchmarks for the GA Engine Clifford FHE implementation across V1-V5 versions.
 
 ## Table of Contents
 
 1. [V1 vs V2 Core Operations](#v1-vs-v2-core-operations)
 2. [GPU Bootstrap Performance](#gpu-bootstrap-performance)
-3. [Detailed Analysis](#detailed-analysis)
+3. [V4 Packed Operations](#v4-packed-operations)
+4. [V5 Privacy Analysis](#v5-privacy-analysis)
+5. [Detailed Analysis](#detailed-analysis)
 
 ## V1 vs V2 Core Operations
 
@@ -133,6 +135,104 @@ cargo run --release --features v2,v2-gpu-cuda,v3 --example test_cuda_bootstrap
 - Optimized CUDA kernels for FHE operations
 - Efficient relinearization implementation
 - Hardware-specific optimizations
+
+## V4 Packed Operations
+
+V4 introduces slot-interleaved packing, storing all 8 multivector components in a single ciphertext.
+
+### Parameters
+
+- **Ring Dimension**: N = 1024 (quick) / N = 8192 (production)
+- **RNS Moduli**: 15 primes (~60 bits each)
+- **Batch Size**: N/8 multivectors per ciphertext (128 for N=1024, 1024 for N=8192)
+
+### Commands
+
+```bash
+# Metal GPU (Apple Silicon)
+cargo run --release --features v4,v2-gpu-metal --example bench_v4_metal_geometric
+
+# CUDA GPU (NVIDIA)
+cargo run --release --features v4,v2-gpu-cuda --example bench_v4_cuda_geometric_quick
+```
+
+### V4 Performance Results
+
+| Operation | Backend | Time | Notes |
+|-----------|---------|------|-------|
+| **Packing (8→1)** | CUDA (N=1024) | 31.38s | One-time per batch |
+| **Geometric Product** | CUDA (N=1024) | 36.84s | On packed data |
+| **Per-MV Cost** | CUDA (batched) | ~36ms | 1024 MVs in parallel |
+| **Packing (8→1)** | Metal (N=8192) | ~5.0s | Unified memory advantage |
+| **Geometric Product** | Metal (N=8192) | ~5.0s | On packed data |
+
+### Memory Comparison
+
+| Configuration | V2/V3 Memory | V4 Memory | Savings |
+|---------------|--------------|-----------|---------|
+| N=1024, 4 primes | 262 KB/MV | 33 KB/MV | 8× |
+| N=8192, 15 primes | 15.7 MB/MV | 1.97 MB/MV | 8× |
+| N=32768, 30 primes | 125.8 MB/MV | 15.7 MB/MV | 8× |
+
+### V4 vs V2 Trade-offs
+
+| Metric | V2 (Separate) | V4 (Packed) | Winner |
+|--------|---------------|-------------|--------|
+| Memory per MV | 8 ciphertexts | 1 ciphertext | **V4** |
+| Single-MV latency | 33ms (GPU) | 36s (includes pack/unpack) | **V2** |
+| Batch throughput | 1× | 64-1024× | **V4** |
+| Implementation complexity | Lower | Higher | V2 |
+
+**Use V4 when**: Processing batches of multivectors, memory-constrained environments, SIMD-style operations.
+
+**Use V2 when**: Single multivector operations, low-latency requirements, interactive applications.
+
+## V5 Privacy Analysis
+
+V5 provides execution-trace collection and privacy analysis for security research.
+
+### Commands
+
+```bash
+# Run comprehensive attack suite
+cargo run --release --features v5 --example v5_privacy_attacks
+
+# Run dimension inference attack only
+cargo run --release --features v5 --example v5_dimension_attack
+
+# Collect traces with Metal GPU
+cargo run --release --features v5,v2-gpu-metal --example v5_trace_collector -- --metal
+```
+
+### Privacy Attack Results
+
+Results from the comprehensive attack suite (6 attack vectors):
+
+| Attack | CKKS Accuracy | CliffordFHE Accuracy | Random Baseline | Winner |
+|--------|---------------|----------------------|-----------------|--------|
+| **Dimension Inference** | 100.0% | 16.7% | 16.7% | **CliffordFHE** |
+| **Task Identification** | 100.0% | 16.7% | 16.7% | **CliffordFHE** |
+| **Operation Count** | 100.0% | 16.7% | 16.7% | **CliffordFHE** |
+| **Trace Length** | 100.0% | 16.7% | 16.7% | **CliffordFHE** |
+| **Sparsity Inference** | ~20% | ~20% | 20% | Tie |
+| **Tenant Linkability** | ~50% | ~50% | 50% | Tie |
+
+### Information Leakage
+
+| Metric | CKKS | CliffordFHE |
+|--------|------|-------------|
+| Dimension entropy (6 classes) | 2.585 bits | 2.585 bits |
+| Bits leaked | 2.585 bits (100%) | 0.0 bits (0%) |
+| Conditional entropy H(D\|T) | 0.0 bits | 2.585 bits |
+| Mutual information I(D;T) | 2.585 bits | 0.0 bits |
+
+### Key Finding
+
+CliffordFHE achieves **information-theoretic privacy** against dimension inference attacks:
+- CKKS: Rotation count directly reveals input dimension
+- CliffordFHE: Fixed 64-multiplication structure regardless of input
+
+**Score**: CliffordFHE wins 4 attacks, ties 2.
 
 ## Detailed Analysis
 

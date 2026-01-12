@@ -41,6 +41,7 @@ cargo build --release --features v2,v2-gpu-cuda,v3
 - [V2: CUDA GPU](#v2-cuda-gpu)
 - [V3: Bootstrapping](#v3-bootstrapping)
 - [V4: Packed Multivector Layout](#v4-packed-multivector-layout)
+- [V5: Privacy Analysis](#v5-privacy-analysis)
 - [Lattice Reduction](#lattice-reduction)
 - [All Versions Combined](#all-versions-combined)
 - [Quick Reference Tables](#quick-reference-tables)
@@ -374,6 +375,76 @@ tests/test_geometric_operations_v4.rs
 # - tests/test_geometric_operations_v4.rs ← V4
 ```
 
+## V5: Privacy Analysis
+
+V5 provides **execution-trace collection and privacy analysis** for researching side-channel leakage in FHE computations.
+
+### Build V5
+```bash
+# Build V5 (standalone, no GPU required)
+cargo build --release --features v5
+
+# Build V5 with Metal GPU tracing
+cargo build --release --features v5,v2-gpu-metal
+
+# Build V5 with CUDA GPU tracing
+cargo build --release --features v5,v2-gpu-cuda
+```
+
+### Examples V5
+
+```bash
+# ==== Comprehensive Attack Suite ====
+
+# Run all 6 privacy attacks (dimension, task, sparsity, linkability, operation count, trace length)
+cargo run --release --features v5 --example v5_privacy_attacks
+
+# Run with verbose output
+cargo run --release --features v5 --example v5_privacy_attacks -- --verbose
+
+# Export results to JSON
+cargo run --release --features v5 --example v5_privacy_attacks -- --json
+
+# ==== Individual Attacks ====
+
+# Dimension inference attack only
+cargo run --release --features v5 --example v5_dimension_attack
+
+# ==== Trace Collection ====
+
+# Collect traces with CPU backend
+cargo run --release --features v5 --example v5_trace_collector
+
+# Collect traces with Metal GPU backend
+cargo run --release --features v5,v2-gpu-metal --example v5_trace_collector -- --metal
+```
+
+### V5 Attack Results
+
+The comprehensive attack suite demonstrates that CliffordFHE provides stronger execution-trace privacy than CKKS:
+
+| Attack | CKKS Accuracy | CliffordFHE Accuracy | Winner |
+|--------|---------------|----------------------|--------|
+| Dimension Inference | 100.0% | 16.7% (random) | **CliffordFHE** |
+| Task Identification | 100.0% | 16.7% (random) | **CliffordFHE** |
+| Operation Count | 100.0% | 16.7% (random) | **CliffordFHE** |
+| Trace Length | 100.0% | 16.7% (random) | **CliffordFHE** |
+| Sparsity Inference | ~20% | ~20% | Tie |
+| Tenant Linkability | ~50% | ~50% | Tie |
+
+**Key Finding**: CliffordFHE wins 4 attacks, ties 2. CKKS leaks 2.585 bits of dimension entropy; CliffordFHE leaks 0 bits.
+
+### V5 File Locations
+```bash
+# V5 module
+src/clifford_fhe_v5/
+
+# Example files
+examples/v5_privacy_attacks.rs   # Comprehensive attack suite
+examples/v5_dimension_attack.rs  # Dimension inference attack
+examples/v5_trace_collector.rs   # Trace collection utility
+```
+
 ## Lattice Reduction
 
 Lattice reduction is used for **security analysis** (cryptanalysis) of the FHE scheme. It is **not required** for FHE operations.
@@ -408,23 +479,23 @@ cargo run --release --features lattice-reduction --example test_lll
 
 ### Build All
 ```bash
-# Build all versions (V1, V2, V3) without lattice reduction (RECOMMENDED)
-cargo build --release --features f64,nd,v1,v2,v3 --no-default-features
+# Build all versions (V1-V5) without lattice reduction (RECOMMENDED)
+cargo build --release --features f64,nd,v1,v2,v3,v4,v5 --no-default-features
 
 # Build with Metal GPU support (Apple Silicon)
-cargo build --release --features v2,v2-gpu-metal,v3
+cargo build --release --features v2,v2-gpu-metal,v3,v4,v5
 
 # Build with CUDA GPU support (NVIDIA)
-cargo build --release --features v2,v2-gpu-cuda,v3
+cargo build --release --features v2,v2-gpu-cuda,v3,v4,v5
 ```
 
 ### Test All
 ```bash
 # Run all tests across all versions (without lattice reduction, RECOMMENDED)
-cargo test --features f64,nd,v1,v2,v3 --no-default-features
+cargo test --features f64,nd,v1,v2,v3,v5 --no-default-features
 
 # Run all tests with default features (includes lattice-reduction)
-cargo test --features v1,v2,v3
+cargo test --features v1,v2,v3,v5
 ```
 
 ### Benchmarks
@@ -456,12 +527,13 @@ cargo doc --open --features v2,v3
 | `v1` | V1 baseline reference implementation | V1 examples and tests |
 | `v2` | V2 CPU-optimized backend | V2 CPU examples and tests |
 | `v2-gpu-metal` | V2/V3/V4 Metal GPU backend (Apple Silicon) | Metal GPU operations (V2/V3/V4) |
-| `v2-gpu-cuda` | V2/V3 CUDA GPU backend (NVIDIA) | CUDA GPU operations (V2/V3) |
+| `v2-gpu-cuda` | V2/V3/V4 CUDA GPU backend (NVIDIA) | CUDA GPU operations (V2/V3/V4) |
 | `v3` | V3 bootstrapping (requires `v2`) | V3 bootstrap examples and tests |
 | `v4` | V4 packed multivector layout (requires `v2`) | V4 packing and geometric product |
+| `v5` | V5 privacy analysis (standalone) | V5 attack suite and trace collection |
 | `lattice-reduction` | Lattice reduction for security analysis | Lattice reduction tests |
 
-**Important**: `v3` and `v4` automatically include `v2` as a dependency. GPU backends (`v2-gpu-metal`, `v2-gpu-cuda`) work with V2, V3, and V4.
+**Important**: `v3` and `v4` automatically include `v2` as a dependency. `v5` is standalone (does not require `v2`). GPU backends (`v2-gpu-metal`, `v2-gpu-cuda`) work with V2, V3, V4, and V5.
 
 ### Test Counts
 

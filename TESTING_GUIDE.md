@@ -6,12 +6,12 @@ Complete guide for running all tests in GA Engine.
 
 ### Run All Tests (CPU)
 ```bash
-cargo test --lib --features v1,v2,v3
+cargo test --lib --features v1,v2,v3,v5
 ```
 
-**Expected Result**: `ok. ~210 passed; 0 failed; 0 ignored; 0 measured`
+**Expected Result**: `ok. ~223 passed; 0 failed; 0 ignored; 0 measured`
 
-**Time**: ~70 seconds
+**Time**: ~75 seconds
 
 ### Run GPU Tests
 
@@ -72,7 +72,20 @@ cargo test --lib --features v1 clifford_fhe_v1
 
 **Result**: 31/31 passing (100%)
 
-### 4. Lattice Reduction Tests (~60 tests)
+### 4. V5 Privacy Analysis Tests (~10 tests)
+```bash
+cargo test --lib --features v5 clifford_fhe_v5
+```
+
+**What's Tested**:
+- Execution trace collection
+- Privacy attack implementations
+- Dimension inference attacks
+- Trace metadata analysis
+
+**Result**: All passing
+
+### 5. Lattice Reduction Tests (~60 tests)
 ```bash
 cargo test --lib lattice_reduction --features lattice-reduction
 ```
@@ -402,16 +415,16 @@ sudo apt-get install libblas-dev liblapack-dev
 ### Pre-Commit Checklist
 ```bash
 # 1. Run full test suite
-cargo test --lib --features v1,v2,v3
+cargo test --lib --features v1,v2,v3,v5
 
 # 2. Build all examples
-cargo build --release --features v2,v3 --examples
+cargo build --release --features v2,v3,v5 --examples
 
 # 3. Format code
 cargo fmt
 
 # 4. Run clippy
-cargo clippy --features v2,v3 -- -D warnings
+cargo clippy --features v2,v3,v5 -- -D warnings
 ```
 
 **All should pass before committing.**
@@ -436,8 +449,10 @@ cargo run --release --features v2,v2-gpu-cuda,v3 --example test_cuda_bootstrap
 | V1 Baseline | 31 | 100% | ~5s |
 | V2 Optimized | 127 | 100% | ~15s |
 | V3 Bootstrap | 52 | 100% | ~40s |
+| V5 Privacy | ~10 | 100% | ~5s |
 | Lattice Reduction | ~60 | 100% | ~5s |
-| **Total** | **~210** | **100%** | **~70s** |
+| **Total (no lattice)** | **~223** | **100%** | **~75s** |
+| **Total (with lattice)** | **~283** | **100%** | **~80s** |
 
 ### GPU Bootstrap Performance
 

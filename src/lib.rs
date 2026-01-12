@@ -42,6 +42,9 @@ pub mod clifford_fhe_v3;  // V3: Bootstrapping for unlimited depth (in developme
 #[cfg(feature = "v4")]
 pub mod clifford_fhe_v4;  // V4: Packed slot-interleaved layout (8× memory reduction)
 
+#[cfg(feature = "v5")]
+pub mod clifford_fhe_v5;  // V5: Privacy-trace collection and analysis
+
 // Default export: V1 unless V2 is explicitly requested
 #[cfg(all(feature = "v1", not(feature = "v2")))]
 pub use clifford_fhe_v1 as clifford_fhe;

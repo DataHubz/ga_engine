@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Comprehensive Test Suite for GA Engine
-# Tests V1, V2 (CPU, Metal GPU), and V3 components
+# Tests V1, V2 (CPU, Metal GPU), V3, and V5 components
 # Run this before committing to ensure all tests pass
 
 set -e  # Exit on first error
@@ -140,6 +140,21 @@ run_test "V3 EvalMod Tests" \
     "$CARGO test --lib clifford_fhe_v3::bootstrapping::eval_mod --features v2,v3 --quiet 2>&1 | tail -10"
 
 # ============================================================================
+# V5 Privacy Analysis Tests
+# ============================================================================
+
+echo ""
+echo "════════════════════════════════════════════════════════════════════"
+echo "  V5: Privacy Analysis Tests"
+echo "════════════════════════════════════════════════════════════════════"
+
+run_test "V5 Build (standalone)" \
+    "$CARGO build --release --features f64,nd,v5 --no-default-features --quiet"
+
+run_test "V5 Unit Tests (~10 tests)" \
+    "$CARGO test --lib --features f64,nd,v5 --no-default-features clifford_fhe_v5 --quiet 2>&1 | tail -20"
+
+# ============================================================================
 # V3 + Metal GPU Tests (macOS only)
 # ============================================================================
 
@@ -183,10 +198,10 @@ echo "  Combined: All Versions"
 echo "════════════════════════════════════════════════════════════════════"
 
 run_test "All Versions Combined Build" \
-    "$CARGO build --release --features f64,nd,v1,v2,v3 --no-default-features --quiet"
+    "$CARGO build --release --features f64,nd,v1,v2,v3,v5 --no-default-features --quiet"
 
-run_test "All Versions Combined Tests (249 tests)" \
-    "$CARGO test --lib --features v2,v3 --quiet 2>&1 | tail -20"
+run_test "All Versions Combined Tests (~223 tests)" \
+    "$CARGO test --lib --features v1,v2,v3,v5 --quiet 2>&1 | tail -20"
 
 # ============================================================================
 # Lattice Reduction Tests (optional, uses default features)

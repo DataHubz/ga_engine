@@ -17,10 +17,12 @@ nd  = []
 # V2: Optimized implementation (active development, performance-focused)
 # V3: Bootstrapping for unlimited depth (in development)
 # V4: Packed slot-interleaved layout (8× memory reduction)
+# V5: Privacy-trace collection and analysis
 v1 = []      # Baseline reference (default, stable)
 v2 = []      # Optimized version (active development)
 v3 = ["v2"]  # Bootstrapping (requires V2 as foundation)
 v4 = ["v2"]  # Packed layout (requires V2 backend)
+v5 = ["v2"]  # Privacy-trace collection (requires V2 for wrapped operations)
 
 # === V2/V3 Backend Selection ===
 v2-cpu-optimized = ["v2"]     # NTT + Rayon parallelization (30× speedup)
