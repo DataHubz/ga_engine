@@ -642,6 +642,19 @@ impl CudaRotationKeys {
     pub fn modulus(&self, prime_idx: usize) -> u64 {
         self.params.moduli[prime_idx]
     }
+
+    /// Get a rotation key by Galois element
+    ///
+    /// Returns None if no key exists for the given Galois element.
+    /// Use `generate_rotation_key_gpu` to create keys first.
+    pub fn get_rotation_key(&self, galois_elt: u64) -> Option<&RotationKey> {
+        self.keys.get(&galois_elt)
+    }
+
+    /// Get the secret key (for V6 integration)
+    pub fn secret_key(&self) -> &[u64] {
+        &self.secret_key
+    }
 }
 
 #[cfg(test)]

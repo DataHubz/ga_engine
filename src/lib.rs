@@ -45,6 +45,9 @@ pub mod clifford_fhe_v4;  // V4: Packed slot-interleaved layout (8× memory redu
 #[cfg(feature = "v5")]
 pub mod clifford_fhe_v5;  // V5: Privacy-trace collection and analysis
 
+#[cfg(feature = "v6")]
+pub mod clifford_fhe_v6;  // V6: parallel_lift GPU acceleration (25-552× speedup)
+
 // Default export: V1 unless V2 is explicitly requested
 #[cfg(all(feature = "v1", not(feature = "v2")))]
 pub use clifford_fhe_v1 as clifford_fhe;

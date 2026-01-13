@@ -18,11 +18,17 @@ nd  = []
 # V3: Bootstrapping for unlimited depth (in development)
 # V4: Packed slot-interleaved layout (8× memory reduction)
 # V5: Privacy-trace collection and analysis
+# V6: parallel_lift GPU acceleration (25-552× speedup)
 v1 = []      # Baseline reference (default, stable)
 v2 = []      # Optimized version (active development)
 v3 = ["v2"]  # Bootstrapping (requires V2 as foundation)
 v4 = ["v2"]  # Packed layout (requires V2 backend)
 v5 = ["v2"]  # Privacy-trace collection (requires V2 for wrapped operations)
+v6 = ["v2"]  # parallel_lift GPU acceleration (requires V2 as foundation)
+
+# === V6 Backend Selection (parallel_lift integration) ===
+v6-cuda = ["v6", "v2-gpu-cuda", "parallel_lift_core", "parallel_lift_cuda"]  # Full CUDA + parallel_lift
+v6-full = ["v6-cuda", "v3"]  # V6 + V3 bootstrapping support
 
 # === V2/V3 Backend Selection ===
 v2-cpu-optimized = ["v2"]     # NTT + Rayon parallelization (30× speedup)
@@ -66,6 +72,10 @@ objc = { version = "0.2", optional = true }
 
 # CUDA GPU support (optional, requires NVIDIA GPU + CUDA toolkit)
 cudarc = { version = "0.11", optional = true, features = ["cuda-12030"] }
+
+# parallel_lift GPU acceleration (optional, for V6)
+parallel_lift_core = { path = "../parallel_lift/rust/crates/parallel_lift_core", optional = true }
+parallel_lift_cuda = { path = "../parallel_lift/rust/crates/parallel_lift_cuda", optional = true }
 
 # Lattice reduction dependencies (optional, for security analysis)
 nalgebra = { version = "0.32", optional = true }
@@ -120,4 +130,8 @@ name = "metal_vs_cpu_benchmark"
 harness = false
 [[bench]]
 name = "lattice_battle"
+harness = false
+
+[[bench]]
+name = "v6_speedup_benchmark"
 harness = false
