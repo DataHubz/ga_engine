@@ -20,7 +20,7 @@
 //! - Projection ((a.b~)*b / (b.b~))
 //! - Rejection (a - proj_b(a))
 
-use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::Ciphertext;
+use crate::clifford_fhe_v2::backends::cpu_optimized::ckks::{Ciphertext, CkksContext, Plaintext};
 use crate::clifford_fhe_v2::backends::cpu_optimized::keys::{EvaluationKey, KeyContext};
 use crate::clifford_fhe_v2::backends::cpu_optimized::multiplication::multiply_ciphertexts;
 use crate::clifford_fhe_v2::backends::cpu_optimized::rns::RnsRepresentation;
@@ -261,9 +261,42 @@ impl GeometricContext {
         ]
     }
 
-    /// Multiply ciphertext by scalar
+    /// Multiply ciphertext by a real scalar.
+    ///
+    /// Integer scalars (including 0 and 1) are applied exactly and preserve the
+    /// level. A general fractional scalar is encoded as a constant plaintext at
+    /// the working scale and applied via plaintext multiplication followed by an
+    /// exact rescale. This is numerically correct but consumes one multiplicative
+    /// level.
+    ///
+    /// Note: this replaces the previous `(q+1)/2` modular-inverse halving, which
+    /// only divided correctly when the underlying scaled integer was even and
+    /// otherwise introduced a ~q/2 error (corrupting wedge/inner products).
     pub fn mul_scalar(&self, ct: &Ciphertext, scalar: f64) -> Ciphertext {
-        ct.mul_scalar(scalar)
+        // Integer scalars are exact and level-preserving.
+        if (scalar - scalar.round()).abs() < 1e-9 {
+            return ct.mul_scalar(scalar);
+        }
+
+        // Fractional scalar: encode it as a constant polynomial (value in
+        // coefficient 0) at scale Δ; multiplying scales every coefficient of the
+        // ciphertext by `scalar`. multiply_plain rescales back to ~Δ and drops
+        // one level.
+        let ckks_ctx = CkksContext::new(self.params.clone());
+        let level = ct.level;
+        let moduli: Vec<u64> = self.params.moduli[..=level].to_vec();
+        let n = self.params.n;
+
+        let scaled = (scalar * self.params.scale).round() as i64;
+        let values: Vec<u64> = moduli
+            .iter()
+            .map(|&q| scaled.rem_euclid(q as i64) as u64)
+            .collect();
+        let mut coeffs = vec![RnsRepresentation::from_u64(0, &moduli); n];
+        coeffs[0] = RnsRepresentation::new(values, moduli.clone());
+        let pt = Plaintext::new(coeffs, self.params.scale, level);
+
+        ct.multiply_plain(&pt, &ckks_ctx)
     }
 
     /// Multiply multivector by scalar
@@ -634,6 +667,24 @@ mod tests {
         ]
     }
 
+    /// Decrypt one ciphertext component back to a real value.
+    fn decrypt_component(ct: &Ciphertext, ckks_ctx: &CkksContext, sk: &SecretKey) -> f64 {
+        let pt = ckks_ctx.decrypt(ct, sk);
+        let q = ct.c0[0].moduli[0];
+        let val = pt.coeffs[0].values[0];
+        let centered = if val > q / 2 { val as i64 - q as i64 } else { val as i64 };
+        centered as f64 / ct.scale
+    }
+
+    /// Decrypt all 8 components of a multivector ciphertext.
+    fn decrypt_mv(mv: &MultivectorCiphertext, ckks_ctx: &CkksContext, sk: &SecretKey) -> [f64; 8] {
+        let mut out = [0.0; 8];
+        for i in 0..8 {
+            out[i] = decrypt_component(&mv[i], ckks_ctx, sk);
+        }
+        out
+    }
+
     #[test]
     fn test_geometric_context_creation() {
         let params = CliffordFHEParams::new_test_ntt_1024();
@@ -838,19 +889,26 @@ mod tests {
             zero_ct.clone(), zero_ct.clone(), zero_ct.clone(),
         ];
 
-        // Compute a ∧ b
+        // Compute a ∧ b and b ∧ a
         let ab_wedge = ctx.wedge_product(&a, &b, &evk);
-
-        // Compute b ∧ a
         let ba_wedge = ctx.wedge_product(&b, &a, &evk);
 
-        // For e₁ ∧ e₂, result should be in e₁₂ component (component 4)
-        // The wedge product is antisymmetric: b ∧ a = -(a ∧ b)
-        // Both should have non-zero values (opposite signs, but we can't verify that without decryption)
-        assert!(ab_wedge[4].c0[0].values[0] > 0 || ab_wedge[4].c0[0].values[0] < ab_wedge[4].c0[0].moduli[0]);
-        assert!(ba_wedge[4].c0[0].values[0] > 0 || ba_wedge[4].c0[0].values[0] < ba_wedge[4].c0[0].moduli[0]);
+        // e₁ ∧ e₂ = e₁₂ (component 4); b ∧ a = -(a ∧ b).
+        let ab = decrypt_mv(&ab_wedge, &ckks_ctx, &_sk);
+        let ba = decrypt_mv(&ba_wedge, &ckks_ctx, &_sk);
 
-        // Note: Full verification would require decryption and checking exact negation
+        assert!((ab[4] - 1.0).abs() < 1e-3, "a∧b e₁₂ component should be 1.0, got {}", ab[4]);
+        assert!((ba[4] + 1.0).abs() < 1e-3, "b∧a e₁₂ component should be -1.0, got {}", ba[4]);
+        // Antisymmetry: b ∧ a = -(a ∧ b) componentwise.
+        for i in 0..8 {
+            assert!((ab[i] + ba[i]).abs() < 1e-3, "antisymmetry violated at component {}: {} vs {}", i, ab[i], ba[i]);
+        }
+        // All non-e₁₂ components are ~0.
+        for i in 0..8 {
+            if i != 4 {
+                assert!(ab[i].abs() < 1e-3, "a∧b component {} should be ~0, got {}", i, ab[i]);
+            }
+        }
     }
 
     #[test]
@@ -877,19 +935,20 @@ mod tests {
             zero_ct.clone(), zero_ct.clone(), zero_ct.clone(),
         ];
 
-        // Compute a · b
+        // Compute a · b and b · a
         let ab_inner = ctx.inner_product(&a, &b, &evk);
-
-        // Compute b · a
         let ba_inner = ctx.inner_product(&b, &a, &evk);
 
-        // Inner product should be symmetric: a·b = b·a
-        // Both should have non-zero scalar component
-        assert!(ab_inner[0].c0[0].values[0] > 0);
-        assert!(ba_inner[0].c0[0].values[0] > 0);
+        // (2e₁) · (3e₁) = (2·3)(e₁·e₁) = 6 in the scalar component; symmetric.
+        let ab = decrypt_mv(&ab_inner, &ckks_ctx, &_sk);
+        let ba = decrypt_mv(&ba_inner, &ckks_ctx, &_sk);
 
-        // With real encryption + noise, exact equality may not hold
-        // Just verify both are non-zero
+        assert!((ab[0] - 6.0).abs() < 1e-3, "a·b scalar should be 6.0, got {}", ab[0]);
+        assert!((ba[0] - 6.0).abs() < 1e-3, "b·a scalar should be 6.0, got {}", ba[0]);
+        // Symmetry: a·b = b·a componentwise.
+        for i in 0..8 {
+            assert!((ab[i] - ba[i]).abs() < 1e-3, "symmetry violated at component {}: {} vs {}", i, ab[i], ba[i]);
+        }
     }
 
     #[test]
@@ -924,8 +983,14 @@ mod tests {
     }
 
     #[test]
+    // Deep operation: projection chains inner_product (2 levels) with a
+    // ciphertext product, and rejection runs projection again. It needs ≥4
+    // multiplicative levels (5-prime N=2048 set) and is too slow for the
+    // debug-mode quick suite. Run explicitly with:
+    //   cargo test --release ... test_projection_and_rejection_orthogonality -- --ignored
+    #[ignore]
     fn test_projection_and_rejection_orthogonality() {
-        let params = CliffordFHEParams::new_test_ntt_1024();
+        let params = CliffordFHEParams::new_test_ntt_2048();
         let ctx = GeometricContext::new(params.clone());
         let (pk, _sk, evk) = ctx.key_ctx.keygen();
         let ckks_ctx = CkksContext::new(params.clone());

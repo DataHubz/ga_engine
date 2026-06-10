@@ -385,44 +385,7 @@ impl Ciphertext {
         let c0: Vec<RnsRepresentation>;
         let c1: Vec<RnsRepresentation>;
 
-        if (scalar - 0.5).abs() < 1e-10 {
-            // Special case: division by 2
-            // Compute 2^(-1) mod q for each prime, then multiply
-            c0 = self
-                .c0
-                .iter()
-                .map(|rns| {
-                    let values: Vec<u64> = rns
-                        .values
-                        .iter()
-                        .zip(&rns.moduli)
-                        .map(|(&val, &q)| {
-                            // Compute 2^(-1) mod q = (q + 1) / 2
-                            let inv2 = (q + 1) / 2;
-                            ((val as u128 * inv2 as u128) % q as u128) as u64
-                        })
-                        .collect();
-                    RnsRepresentation::new(values, rns.moduli.clone())
-                })
-                .collect();
-
-            c1 = self
-                .c1
-                .iter()
-                .map(|rns| {
-                    let values: Vec<u64> = rns
-                        .values
-                        .iter()
-                        .zip(&rns.moduli)
-                        .map(|(&val, &q)| {
-                            let inv2 = (q + 1) / 2;
-                            ((val as u128 * inv2 as u128) % q as u128) as u64
-                        })
-                        .collect();
-                    RnsRepresentation::new(values, rns.moduli.clone())
-                })
-                .collect();
-        } else if scalar.abs() < 1e-10 {
+        if scalar.abs() < 1e-10 {
             // Multiplication by 0 - return zero ciphertext
             let zero_rns = RnsRepresentation::from_u64(0, &self.c0[0].moduli);
             c0 = vec![zero_rns.clone(); self.n];
@@ -432,14 +395,22 @@ impl Ciphertext {
             c0 = self.c0.clone();
             c1 = self.c1.clone();
         } else if (scalar - scalar.round()).abs() < 1e-10 {
-            // Integer scalar: multiply directly
+            // Integer scalar: multiply directly (exact, level-preserving)
             let scalar_int = scalar.round() as u64;
             c0 = self.c0.iter().map(|rns| rns.mul_scalar(scalar_int)).collect();
             c1 = self.c1.iter().map(|rns| rns.mul_scalar(scalar_int)).collect();
         } else {
-            // Fractional scalar (not 0.5): NOT IMPLEMENTED YET
-            // This requires computing modular inverse which is complex for arbitrary fractions
-            panic!("Multiplication by fractional scalar {} not implemented (only 0.5 supported)", scalar);
+            // Fractional scalars cannot be applied exactly at the bare-ciphertext
+            // level. The previous (q+1)/2 "halving" only divided correctly when
+            // the underlying scaled integer was even and silently corrupted odd
+            // coefficients with a ~q/2 error. Use GeometricContext::mul_scalar,
+            // which encodes the constant as a plaintext and rescales exactly
+            // (at the cost of one multiplicative level).
+            panic!(
+                "Ciphertext::mul_scalar cannot apply fractional scalar {} exactly; \
+                 use GeometricContext::mul_scalar (plaintext-multiply + rescale)",
+                scalar
+            );
         }
 
         // Scale stays the same!
