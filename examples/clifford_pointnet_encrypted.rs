@@ -52,6 +52,22 @@ fn encode_point_to_multivector(point: &Point3D) -> [f64; 8] {
     ]
 }
 
+/// Plaintext Cl(3,0) geometric product, computed with the SAME structure
+/// constants the homomorphic geometric product uses. Used as the ground-truth
+/// reference when verifying the encrypted result.
+#[cfg(feature = "v2")]
+fn plaintext_geometric_product(a: &[f64; 8], b: &[f64; 8]) -> [f64; 8] {
+    use ga_engine::clifford_fhe_v2::backends::cpu_optimized::geometric::Cl3StructureConstants;
+    let constants = Cl3StructureConstants::new();
+    let mut out = [0.0f64; 8];
+    for k in 0..8 {
+        for &(coeff, i, j) in &constants.products[k] {
+            out[k] += (coeff as f64) * a[i] * b[j];
+        }
+    }
+    out
+}
+
 /// Simple encrypted linear layer: y = sum(w_i * x_i) + b
 /// Uses only addition and scalar multiplication (depth-0 operations)
 #[cfg(feature = "v2")]
@@ -197,22 +213,22 @@ fn main() {
     println!("   (Server never sees raw point data!)");
     let inference_start = Instant::now();
 
-    // Step 3a: Compute mean pooling (sum points, divide by N)
-    println!("   3a. Encrypted mean pooling...");
+    // Step 3a: Encrypted sum-pooling.
+    // We aggregate the point cloud by SUMMING the encrypted multivectors. The
+    // mean is sum / N, but 1/N is a public constant, so we defer that division
+    // to plaintext after decryption (standard practice in FHE inference). This
+    // keeps the encrypted pipeline exact and avoids any homomorphic division.
+    println!("   3a. Encrypted sum-pooling...");
     let pool_start = Instant::now();
 
     let mut pooled = encrypted_points[0].clone();
     for i in 1..encrypted_points.len() {
         pooled = geo_ctx.add_multivectors(&pooled, &encrypted_points[i]);
     }
-    // Divide by 4 using repeated halving (0.5 * 0.5 = 0.25)
-    // This works because 0.5 is the only supported fractional scalar
-    pooled = geo_ctx.mul_multivector_scalar(&pooled, 0.5);
-    pooled = geo_ctx.mul_multivector_scalar(&pooled, 0.5);
-    let n_points = 4.0; // For the plaintext comparison
+    let n_points = encrypted_points.len() as f64;
 
     let pool_time = pool_start.elapsed();
-    println!("       Mean pooling: {:.2}ms", pool_time.as_millis());
+    println!("       Sum-pooling: {:.2}ms", pool_time.as_millis());
 
     // Step 3b: Compute geometric product for feature extraction
     println!("   3b. Encrypted geometric product (self-product for feature)...");
@@ -249,42 +265,41 @@ fn main() {
     // ========================================
     println!("5. Verification (plaintext computation for comparison)...");
 
-    // Compute the same operations in plaintext
-    let mut plain_pooled = [0.0; 8];
+    // Plaintext reference: sum the points, then take the SAME geometric
+    // self-product the server computed homomorphically — full Cl(3,0), all 8
+    // components, using the same structure constants.
+    let mut plain_sum = [0.0; 8];
     for point in &point_cloud.points {
         let mv = encode_point_to_multivector(point);
         for i in 0..8 {
-            plain_pooled[i] += mv[i];
+            plain_sum[i] += mv[i];
         }
     }
+    let plain_features = plaintext_geometric_product(&plain_sum, &plain_sum);
+
+    // Compare all 8 multivector components.
+    let mut max_error = 0.0f64;
     for i in 0..8 {
-        plain_pooled[i] /= n_points;
+        max_error = max_error.max((decrypted_features[i] - plain_features[i]).abs());
     }
 
-    // Plaintext geometric product (simplified - scalar component only for demo)
-    // Full GP would use the Cl(3,0) multiplication table
-    let plain_scalar = plain_pooled[1] * plain_pooled[1]
-                     + plain_pooled[2] * plain_pooled[2]
-                     + plain_pooled[3] * plain_pooled[3]; // e1² + e2² + e3² in Cl(3,0)
-
-    println!("   Plaintext pooled (vector part): ({:.4}, {:.4}, {:.4})",
-             plain_pooled[1], plain_pooled[2], plain_pooled[3]);
-    println!("   Encrypted pooled decrypted:     ({:.4}, {:.4}, {:.4})",
-             decrypted_features[1], decrypted_features[2], decrypted_features[3]);
-
-    // Compute error
-    let error_e1 = (decrypted_features[1] - plain_pooled[1]).abs();
-    let error_e2 = (decrypted_features[2] - plain_pooled[2]).abs();
-    let error_e3 = (decrypted_features[3] - plain_pooled[3]).abs();
-    let max_error = error_e1.max(error_e2).max(error_e3);
-
+    let round3 = |v: &[f64; 8]| v.iter().map(|x| (x * 1e3).round() / 1e3).collect::<Vec<_>>();
+    println!("   Plaintext  sum⊗sum:  {:?}", round3(&plain_features));
+    println!("   Encrypted  decrypted: {:?}", round3(&decrypted_features));
     println!();
-    println!("   Max component error: {:.6}", max_error);
+    println!("   Max component error: {:.2e}", max_error);
+
+    // The mean-pooled self-product feature normalizes by N² (a public constant),
+    // applied here in plaintext after decryption.
+    println!(
+        "   Mean self-product scalar feature (÷N²): {:.6}",
+        decrypted_features[0] / (n_points * n_points)
+    );
 
     if max_error < 0.01 {
-        println!("   ✅ Encrypted computation matches plaintext!");
+        println!("   ✅ Encrypted geometric product matches plaintext (<1% error)!");
     } else {
-        println!("   ⚠️  Some error detected (expected with FHE noise)");
+        println!("   ❌ Unexpected error — encrypted result diverges from plaintext.");
     }
 
     // ========================================
@@ -299,7 +314,7 @@ fn main() {
     println!("|--------------------+------------+----------------------------|");
     println!("| Key Generation     | {:>8.2}ms | One-time setup             |", setup_time.as_millis());
     println!("| Encryption         | {:>8.2}ms | Client encrypts {} points  |", encrypt_time.as_millis(), point_cloud.points.len());
-    println!("| Encrypted Pooling  | {:>8.2}ms | Server: mean aggregation   |", pool_time.as_millis());
+    println!("| Encrypted Pooling  | {:>8.2}ms | Server: sum aggregation      |", pool_time.as_millis());
     println!("| Geometric Product  | {:>8.2}ms | Server: Cl(3,0) features   |", gp_time.as_millis());
     println!("| Decryption         | {:>8.2}ms | Client gets result         |", decrypt_time.as_millis());
     println!();
