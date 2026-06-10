@@ -311,7 +311,7 @@ mod tests {
         let params = CliffordFHEParams::new_v3_bootstrap_8192();
 
         assert_eq!(params.n, 8192);
-        assert_eq!(params.moduli.len(), 22);
+        assert_eq!(params.moduli.len(), 41); // 1 special + 40 scaling primes
         assert_eq!(params.security, SecurityLevel::Bit128);
 
         // Verify all primes are NTT-friendly (q ≡ 1 mod 2N)
@@ -355,11 +355,11 @@ mod tests {
     fn test_computation_levels() {
         let params = CliffordFHEParams::new_v3_bootstrap_8192();
 
-        // With 12 bootstrap levels: 22 - 12 - 1 = 9 computation levels
-        assert_eq!(params.computation_levels(12), 9);
+        // With 12 bootstrap levels: 41 - 12 - 1 = 28 computation levels
+        assert_eq!(params.computation_levels(12), 28);
 
-        // With 15 bootstrap levels: 22 - 15 - 1 = 6 computation levels
-        assert_eq!(params.computation_levels(15), 6);
+        // With 15 bootstrap levels: 41 - 15 - 1 = 25 computation levels
+        assert_eq!(params.computation_levels(15), 25);
     }
 
     #[test]
@@ -372,9 +372,10 @@ mod tests {
         assert!(params.supports_bootstrap(14));
         assert!(params.supports_bootstrap(15));
 
-        // Should not support with too many levels (22 - 18 - 1 = 3, exactly at boundary)
-        assert!(params.supports_bootstrap(18));
-        assert!(!params.supports_bootstrap(19));  // 22 - 19 - 1 = 2 < 3
+        // Boundary: supports_bootstrap requires computation_levels >= 3, i.e.
+        // 41 - b - 1 >= 3  ⇔  b <= 37.
+        assert!(params.supports_bootstrap(37));   // 41 - 37 - 1 = 3, exactly at boundary
+        assert!(!params.supports_bootstrap(38));  // 41 - 38 - 1 = 2 < 3
     }
 
     #[test]
