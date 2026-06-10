@@ -228,8 +228,13 @@ impl Augmentation {
 
     /// Random uniform scaling
     fn apply_random_scale(&self, pc: &mut PointCloud) {
-        let mut rng = rand::thread_rng();
-        let scale = rng.gen_range(self.config.scale_range.0..self.config.scale_range.1);
+        let (lo, hi) = self.config.scale_range;
+        // `gen_range` panics on an empty range, so handle a fixed scale (lo == hi) directly.
+        let scale = if lo < hi {
+            rand::thread_rng().gen_range(lo..hi)
+        } else {
+            lo
+        };
         pc.scale(scale);
     }
 
