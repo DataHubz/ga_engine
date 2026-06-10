@@ -29,9 +29,121 @@ pub fn chebyshev_sin_coeffs(degree: usize) -> Vec<f64> {
     assert!(degree >= 5, "Need at least degree 5 for reasonable accuracy");
     assert!(degree % 2 == 1, "Sine is odd function, use odd degree");
 
-    // For now, use Taylor series coefficients
-    // TODO: Implement proper Chebyshev approximation (better than Taylor)
-    taylor_sin_coeffs(degree)
+    // Compute Chebyshev approximation for sin(x) on [-π, π]
+    //
+    // Strategy:
+    // 1. Map [-π, π] to [-1, 1] via t = x/π
+    // 2. Compute Chebyshev coefficients for sin(πt) on [-1, 1]
+    // 3. Convert Chebyshev basis to monomial basis
+    // 4. Adjust coefficients for the scaling x = πt
+
+    // Step 1-2: Compute Chebyshev coefficients for sin(πt) on [-1, 1]
+    // Using Chebyshev-Gauss quadrature with N points:
+    // c_k ≈ (2/N) Σ_{j=0}^{N-1} f(cos(π(j+0.5)/N)) * cos(πk(j+0.5)/N)
+    // (c_0 uses factor 1/N instead of 2/N)
+
+    let n_points = 128; // Enough points for accurate integration
+    let mut cheb_coeffs = vec![0.0; degree + 1];
+
+    for k in 0..=degree {
+        let mut sum = 0.0;
+        for j in 0..n_points {
+            let theta = PI * (j as f64 + 0.5) / n_points as f64;
+            let t = theta.cos(); // Chebyshev node in [-1, 1]
+            let f_t = (PI * t).sin(); // sin(πt)
+            sum += f_t * (k as f64 * theta).cos();
+        }
+        cheb_coeffs[k] = if k == 0 {
+            sum / n_points as f64
+        } else {
+            2.0 * sum / n_points as f64
+        };
+    }
+
+    // Since sin is odd, even Chebyshev coefficients should be ~0
+    // (T_0, T_2, T_4, ... are even functions)
+    for k in (0..=degree).step_by(2) {
+        cheb_coeffs[k] = 0.0;
+    }
+
+    // Step 3: Convert Chebyshev basis to monomial basis
+    // T_k(t) can be expressed as a polynomial in t
+    // We need coefficients for: Σ c_k T_k(t) = Σ a_j t^j
+    let mono_coeffs_t = chebyshev_to_monomial(&cheb_coeffs);
+
+    // Step 4: Adjust for scaling x = πt, so t = x/π
+    // If p(t) = Σ a_j t^j, then p(x/π) = Σ a_j (x/π)^j = Σ (a_j/π^j) x^j
+    let mut mono_coeffs_x = vec![0.0; degree + 1];
+    let mut pi_power = 1.0;
+    for j in 0..=degree {
+        mono_coeffs_x[j] = mono_coeffs_t[j] / pi_power;
+        pi_power *= PI;
+    }
+
+    // Ensure even coefficients are exactly zero (sine is odd)
+    for j in (0..=degree).step_by(2) {
+        mono_coeffs_x[j] = 0.0;
+    }
+
+    mono_coeffs_x
+}
+
+/// Convert Chebyshev polynomial coefficients to monomial (power) basis
+///
+/// Given coefficients c_k for Σ c_k T_k(x), compute coefficients a_j for Σ a_j x^j
+///
+/// Uses the recurrence relation for Chebyshev polynomials:
+/// T_0(x) = 1
+/// T_1(x) = x
+/// T_{n+1}(x) = 2x T_n(x) - T_{n-1}(x)
+fn chebyshev_to_monomial(cheb_coeffs: &[f64]) -> Vec<f64> {
+    let n = cheb_coeffs.len();
+    if n == 0 {
+        return vec![];
+    }
+
+    // Store monomial coefficients for each T_k
+    // t_polys[k] contains coefficients [a_0, a_1, ..., a_k] for T_k(x)
+    let mut t_polys: Vec<Vec<f64>> = Vec::with_capacity(n);
+
+    // T_0(x) = 1
+    t_polys.push(vec![1.0]);
+
+    if n > 1 {
+        // T_1(x) = x
+        t_polys.push(vec![0.0, 1.0]);
+    }
+
+    // T_{k+1}(x) = 2x T_k(x) - T_{k-1}(x)
+    for k in 2..n {
+        let mut new_poly = vec![0.0; k + 1];
+
+        // 2x T_{k-1}(x): multiply T_{k-1} by x and scale by 2
+        let prev = &t_polys[k - 1];
+        for (i, &coeff) in prev.iter().enumerate() {
+            new_poly[i + 1] += 2.0 * coeff;
+        }
+
+        // Subtract T_{k-2}(x)
+        let prev_prev = &t_polys[k - 2];
+        for (i, &coeff) in prev_prev.iter().enumerate() {
+            new_poly[i] -= coeff;
+        }
+
+        t_polys.push(new_poly);
+    }
+
+    // Combine: Σ c_k T_k(x) = Σ_j (Σ_k c_k * t_polys[k][j]) x^j
+    let mut result = vec![0.0; n];
+    for (k, &c_k) in cheb_coeffs.iter().enumerate() {
+        if c_k.abs() > 1e-15 {
+            for (j, &t_kj) in t_polys[k].iter().enumerate() {
+                result[j] += c_k * t_kj;
+            }
+        }
+    }
+
+    result
 }
 
 /// Compute Taylor series coefficients for sin(x)
@@ -204,10 +316,129 @@ mod tests {
 
         // Sine has no even powers
         for k in 0..coeffs.len() {
-            if k % 2 == 0 && k > 0 {
-                assert_eq!(coeffs[k], 0.0, "Even coefficient should be zero");
+            if k % 2 == 0 {
+                assert!(coeffs[k].abs() < 1e-14, "Even coefficient {} should be zero, got {}", k, coeffs[k]);
             }
         }
+
+        // The first coefficient (x term) should be close to 1 but not exactly
+        // (Chebyshev distributes error, so c_1 ≠ 1 exactly unlike Taylor)
+        assert!((coeffs[1] - 1.0).abs() < 0.1, "x coefficient should be near 1, got {}", coeffs[1]);
+    }
+
+    #[test]
+    fn test_chebyshev_sin_accuracy() {
+        let coeffs = chebyshev_sin_coeffs(15);
+
+        // Test on [-π, π] including boundary points
+        let test_points = vec![
+            0.0,
+            PI / 6.0,
+            PI / 4.0,
+            PI / 3.0,
+            PI / 2.0,
+            2.0 * PI / 3.0,
+            3.0 * PI / 4.0,
+            5.0 * PI / 6.0,
+            PI,
+            -PI / 4.0,
+            -PI / 2.0,
+            -3.0 * PI / 4.0,
+            -PI,
+        ];
+
+        let mut max_error = 0.0f64;
+        for x in &test_points {
+            let approx = eval_polynomial(&coeffs, *x);
+            let exact = x.sin();
+            let error = (approx - exact).abs();
+            max_error = max_error.max(error);
+
+            println!("Chebyshev sin({:.4}) = {:.10} (approx: {:.10}, error: {:.2e})",
+                     x, exact, approx, error);
+        }
+
+        // Chebyshev degree-15 should achieve ~1e-6 max error on [-π, π]
+        assert!(max_error < 1e-5, "Chebyshev max error too large: {:.2e}", max_error);
+    }
+
+    #[test]
+    fn test_chebyshev_vs_taylor_at_boundaries() {
+        // Chebyshev should have better (or comparable) worst-case error than Taylor
+        // especially near the boundaries of [-π, π]
+        let degree = 15;
+        let cheb_coeffs = chebyshev_sin_coeffs(degree);
+        let taylor_coeffs = taylor_sin_coeffs(degree);
+
+        // Test near the boundaries where Taylor typically struggles
+        let boundary_points = vec![
+            0.95 * PI,
+            0.99 * PI,
+            PI,
+            -0.95 * PI,
+            -0.99 * PI,
+            -PI,
+        ];
+
+        let mut cheb_max_error = 0.0f64;
+        let mut taylor_max_error = 0.0f64;
+
+        for x in &boundary_points {
+            let exact = x.sin();
+            let cheb_approx = eval_polynomial(&cheb_coeffs, *x);
+            let taylor_approx = eval_polynomial(&taylor_coeffs, *x);
+
+            let cheb_error = (cheb_approx - exact).abs();
+            let taylor_error = (taylor_approx - exact).abs();
+
+            cheb_max_error = cheb_max_error.max(cheb_error);
+            taylor_max_error = taylor_max_error.max(taylor_error);
+
+            println!("x={:.4}: Chebyshev error={:.2e}, Taylor error={:.2e}",
+                     x, cheb_error, taylor_error);
+        }
+
+        println!("Max errors - Chebyshev: {:.2e}, Taylor: {:.2e}", cheb_max_error, taylor_max_error);
+
+        // Chebyshev should be at least as good as Taylor at boundaries
+        // (In practice, Chebyshev distributes error more evenly)
+        assert!(cheb_max_error <= taylor_max_error * 1.5,
+                "Chebyshev should not be significantly worse than Taylor at boundaries");
+    }
+
+    #[test]
+    fn test_chebyshev_to_monomial() {
+        // Test with known Chebyshev polynomials:
+        // T_0(x) = 1 -> [1]
+        // T_1(x) = x -> [0, 1]
+        // T_2(x) = 2x² - 1 -> [-1, 0, 2]
+        // T_3(x) = 4x³ - 3x -> [0, -3, 0, 4]
+
+        // Test: 1*T_0 + 0*T_1 + 0*T_2 = 1 -> [1]
+        let cheb = vec![1.0];
+        let mono = chebyshev_to_monomial(&cheb);
+        assert!((mono[0] - 1.0).abs() < 1e-10);
+
+        // Test: 0*T_0 + 1*T_1 = x -> [0, 1]
+        let cheb = vec![0.0, 1.0];
+        let mono = chebyshev_to_monomial(&cheb);
+        assert!((mono[0] - 0.0).abs() < 1e-10);
+        assert!((mono[1] - 1.0).abs() < 1e-10);
+
+        // Test: 0*T_0 + 0*T_1 + 1*T_2 = 2x² - 1 -> [-1, 0, 2]
+        let cheb = vec![0.0, 0.0, 1.0];
+        let mono = chebyshev_to_monomial(&cheb);
+        assert!((mono[0] - (-1.0)).abs() < 1e-10, "T_2 constant term should be -1, got {}", mono[0]);
+        assert!((mono[1] - 0.0).abs() < 1e-10, "T_2 linear term should be 0, got {}", mono[1]);
+        assert!((mono[2] - 2.0).abs() < 1e-10, "T_2 quadratic term should be 2, got {}", mono[2]);
+
+        // Test: 0*T_0 + 0*T_1 + 0*T_2 + 1*T_3 = 4x³ - 3x -> [0, -3, 0, 4]
+        let cheb = vec![0.0, 0.0, 0.0, 1.0];
+        let mono = chebyshev_to_monomial(&cheb);
+        assert!((mono[0] - 0.0).abs() < 1e-10);
+        assert!((mono[1] - (-3.0)).abs() < 1e-10, "T_3 linear term should be -3, got {}", mono[1]);
+        assert!((mono[2] - 0.0).abs() < 1e-10);
+        assert!((mono[3] - 4.0).abs() < 1e-10, "T_3 cubic term should be 4, got {}", mono[3]);
     }
 
     #[test]

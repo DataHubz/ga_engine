@@ -167,5 +167,5 @@ fn main() {
     println!("3. Validate end-to-end encrypted inference: encrypt → batch → infer → decrypt");
     println!("4. Train production model in PyTorch and export weights");
     println!("5. Move to real LUNA16 medical imaging dataset");
-    println!("6. Publish results (NeurIPS/ICLR)");
+    println!("6. Publish results");
 }

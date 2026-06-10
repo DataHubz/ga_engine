@@ -13,8 +13,11 @@ Complete reference for feature flags and build configurations.
 | `v3` | V3 bootstrapping (uses V2 backend) | **Requires `v2`** |
 | `v4` | V4 packed slot-interleaved layout (uses V2 backend) | **Requires `v2`** |
 | `v5` | V5 privacy-trace collection and analysis | None (standalone) |
+| `v6` | V6 parallel_lift base (uses V2 backend) | **Requires `v2`** |
+| `v6-cuda` | V6 with CUDA acceleration | **Requires `v6`, `v2-gpu-cuda`** |
+| `v6-full` | V6 + V3 bootstrapping support | **Requires `v6-cuda`, `v3`** |
 
-**Important**: V3 and V4 are NOT backend-agnostic. They directly call V2 backend functions (CPU, Metal GPU, or CUDA GPU). V5 is standalone and can work with any backend.
+**Important**: V3, V4, and V6 are NOT backend-agnostic. They directly call V2 backend functions (CPU, Metal GPU, or CUDA GPU). V5 is standalone and can work with any backend. **V6 uses stub crates by default**—the project compiles without the parallel_lift repository, but `FheGpuContext::new()` returns an error at runtime.
 
 ### GPU Backend Selection
 
@@ -146,6 +149,32 @@ cargo run --release --features v5,v2-gpu-metal --example v5_trace_collector -- -
 cargo build --release --features v5,v2-gpu-cuda
 ```
 
+### V6 parallel_lift GPU Acceleration
+
+V6 provides external GPU acceleration via the parallel_lift library. **By default, stub crates are used** that allow compilation without the external repository.
+
+```bash
+# Build V6 with stubs (default, no external dependency)
+cargo build --release --features v6-cuda
+# Note: FheGpuContext::new() returns error at runtime with stubs
+
+# ==== To enable real parallel_lift ====
+
+# Step 1: Clone parallel_lift repository
+cd ..
+git clone <parallel_lift_url> parallel_lift
+cd ga_engine
+
+# Step 2: Enable real parallel_lift (updates Cargo.toml paths)
+./scripts/enable_parallel_lift.sh
+
+# Step 3: Build with real parallel_lift
+cargo build --release --features v6-cuda
+
+# ==== To revert to stubs ====
+./scripts/disable_parallel_lift.sh
+```
+
 ### Cloud GPU Instances (CUDA, No Lattice)
 
 ```bash
@@ -186,6 +215,7 @@ When you enable certain features, they automatically enable their dependencies:
 v3 ──requires──> v2
 v4 ──requires──> v2
 v5 ──standalone──> (no dependencies)
+v6 ──requires──> v2
 
 v2-gpu-metal ──enables──> v2
 v2-gpu-cuda  ──enables──> v2
@@ -203,6 +233,14 @@ v4 + v2           ──> V4 packed operations using CPU
 v5               ──> V5 privacy analysis (CPU tracing)
 v5 + v2-gpu-metal ──> V5 privacy analysis with Metal GPU tracing
 v5 + v2-gpu-cuda  ──> V5 privacy analysis with CUDA GPU tracing
+
+v6-cuda          ──> V6 parallel_lift CUDA (stub by default)
+v6-full          ──> V6 + V3 bootstrapping
+
+# V6 parallel_lift setup:
+# Default: Uses stub crates (compiles, but FheGpuContext::new() returns error)
+# To enable: ./scripts/enable_parallel_lift.sh (requires ../parallel_lift repo)
+# To disable: ./scripts/disable_parallel_lift.sh (reverts to stubs)
 ```
 
 ### Optional Dependencies
@@ -217,6 +255,10 @@ These dependencies are only compiled when their corresponding features are enabl
 | `metal` | `v2-gpu-metal` | Metal GPU compute API |
 | `objc` | `v2-gpu-metal` | Objective-C runtime for Metal |
 | `cudarc` | `v2-gpu-cuda` | CUDA GPU compute API |
+| `parallel_lift_core` | `v6-cuda` | parallel_lift core operations (stub by default) |
+| `parallel_lift_cuda` | `v6-cuda` | parallel_lift CUDA GPU operations (stub by default) |
+
+**Note**: `parallel_lift_core` and `parallel_lift_cuda` use **stub crates by default** that compile to empty implementations. To use real parallel_lift, run `./scripts/enable_parallel_lift.sh` after cloning the parallel_lift repository to `../parallel_lift`.
 
 ## Why Feature Flags?
 
@@ -277,9 +319,15 @@ By making lattice reduction optional:
 # V5 with CUDA GPU tracing
 --features v5,v2-gpu-cuda
 
+# V6 CUDA (uses stubs by default)
+--features v6-cuda
+
+# V6 full (V6 + V3 bootstrapping)
+--features v6-full
+
 # All versions with GPU support
 --features v1,v2,v2-gpu-metal,v3,v4,v5
---features v1,v2,v2-gpu-cuda,v3,v4,v5
+--features v1,v2,v2-gpu-cuda,v3,v4,v5,v6-cuda
 ```
 
 ### Invalid Combinations
@@ -333,9 +381,12 @@ When you use `--features v2,v2-gpu-metal,v4`:
 | V3 Unit Tests | 52 | `cargo test --lib --features v2,v3 clifford_fhe_v3` |
 | V4 Integration Tests | 3 | `cargo test --test test_geometric_operations_v4 --features v4,v2-gpu-metal` |
 | V5 Privacy Tests | ~10 | `cargo test --lib --features v5 clifford_fhe_v5` |
+| V6 (stub builds) | N/A | `cargo build --features v6-cuda` (compiles with stubs) |
 | Lattice Reduction | ~60 | `cargo test --lib lattice_reduction --features lattice-reduction` |
 | **Total (no lattice)** | **~223** | `cargo test --lib --features v1,v2,v3,v4,v5` |
 | **Total (with lattice)** | **~283** | `cargo test --lib --features v1,v2,v3,v4,v5,lattice-reduction` |
+
+**Note**: V6 tests require real parallel_lift (not stubs). With stubs, `FheGpuContext::new()` returns an error, so V6 tests will fail. Run `./scripts/enable_parallel_lift.sh` to enable real parallel_lift for V6 testing.
 
 ## Troubleshooting
 
@@ -436,6 +487,51 @@ xcode-select -p
 # Rebuild
 cargo clean
 cargo build --release --features v2,v2-gpu-metal,v3
+```
+
+### V6 parallel_lift not available
+
+**Problem**: Runtime error "parallel_lift is not available" when using V6
+
+**Explanation**: This is expected behavior with stub crates. The project compiles successfully, but `FheGpuContext::new()` returns an error because the real parallel_lift library is not available.
+
+**Solution**:
+```bash
+# Option 1: Enable real parallel_lift (requires external repository)
+cd ..
+git clone <parallel_lift_url> parallel_lift
+cd ga_engine
+./scripts/enable_parallel_lift.sh
+cargo build --release --features v6-cuda
+
+# Option 2: Continue using stubs (compilation works, runtime errors expected)
+# This is fine if you don't need V6 GPU acceleration
+```
+
+### V6 enable script fails
+
+**Problem**: `./scripts/enable_parallel_lift.sh` reports "parallel_lift repository not found"
+
+**Solution**:
+```bash
+# Verify parallel_lift is in the correct location
+ls ../parallel_lift/rust/crates/parallel_lift_core
+
+# If not found, clone it:
+cd ..
+git clone <parallel_lift_url> parallel_lift
+cd ga_engine
+./scripts/enable_parallel_lift.sh
+```
+
+### Revert V6 to stubs
+
+**Problem**: Want to revert Cargo.toml to use stub crates
+
+**Solution**:
+```bash
+./scripts/disable_parallel_lift.sh
+cargo build --release --features v6-cuda  # Now uses stubs
 ```
 
 ## Performance Impact

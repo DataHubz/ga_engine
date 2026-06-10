@@ -875,7 +875,7 @@ This ensures primitive 2N-th roots of unity exist for efficient negacyclic NTT.
 
 ### This Project
 
-- **Silva, D.W.** "Merits of Geometric Algebra Applied to Cryptography and Machine Learning" (Phil. Trans. Royal Society A, 2026)
+David William Silva. "Merits of Geometric Algebra Applied to Cryptography and Machine Learning." *Philosophical Transactions of the Royal Society A*, 2026.
 
 ## License
 
@@ -883,5 +883,4 @@ Apache License 2.0 - See [LICENSE](LICENSE) file
 
 ## Contact
 
-- GitHub Issues: https://github.com/DataHubz/ga_engine/issues
-- Email: dsilva@datahubz.com
+David William Silva — DataHubz LLC — <dsilva@datahubz.com>

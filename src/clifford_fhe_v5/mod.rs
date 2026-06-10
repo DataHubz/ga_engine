@@ -8,7 +8,7 @@
 //!
 //! V5 is **non-invasive**: it wraps existing V2 operations without modifying them.
 //! This ensures:
-//! - Retrocompatibility with existing papers (Crypto 2026, USENIX 2026)
+//! - Retrocompatibility with existing papers
 //! - Clean isolation for privacy research experiments
 //! - Freedom to experiment without affecting production code
 //!

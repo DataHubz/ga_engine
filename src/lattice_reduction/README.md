@@ -236,4 +236,3 @@ This is research code for lattice reduction with geometric algebra optimizations
 ## License
 
 Apache 2.0 - See LICENSE file in repository root.
-**Maintainer**: David Silva

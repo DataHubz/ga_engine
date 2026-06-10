@@ -308,13 +308,18 @@ impl CliffordFHEParams {
         let mut moduli = vec![special_modulus];
         moduli.extend(scaling_primes);
 
-        let scale = 2f64.powi(45);  // 45-bit scale for precision
+        // CRITICAL: Scale must match the actual prime size for stable rescaling!
+        // The primes are ~2^44 (in range [2^44, 2^45)), so use 2^44 scale.
+        // Using 2^45 scale with 2^44 primes causes 1 bit growth per multiply,
+        // which compounds exponentially in chained operations.
+        let scale = 2f64.powi(44);
         let inv_scale_mod_q = Self::precompute_inv_scale_mod_q(scale, &moduli);
         let inv_q_top_mod_q = Self::precompute_inv_q_top_mod_q(&moduli);
         let kappa_plain_mul = (n as f64 / 2.0) * 1.46;
 
         println!("  Generated {} NTT-friendly primes", moduli.len());
         println!("  N = {}, num_primes = {}", n, moduli.len());
+        println!("  Scale = 2^44 (matched to prime size)");
         println!("  Level budget: CoeffToSlot(9) + EvalMod(9) + SlotToCoeff(9) = 27 levels used");
 
         Ok(Self {

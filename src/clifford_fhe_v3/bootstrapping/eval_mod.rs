@@ -165,22 +165,24 @@ fn encode_constant_plaintext(
     Ok(pt)
 }
 
-/// Evaluate sine polynomial homomorphically
+/// Evaluate sine polynomial homomorphically using Baby-Step Giant-Step (BSGS)
 ///
 /// Computes sin(x) ≈ c₁x + c₃x³ + c₅x⁵ + ... using polynomial approximation.
 ///
-/// Uses **Paterson-Stockmeyer** algorithm to minimize multiplication depth:
-/// - Baby-step: Precompute powers x, x², x³, ...
-/// - Giant-step: Group terms to reuse powers
+/// Uses **Baby-Step Giant-Step** algorithm to minimize multiplication depth:
+/// - For degree n polynomial, uses O(√n) multiplicative depth instead of O(n)
+/// - Baby-step: Precompute powers x, x², ..., x^k where k = ⌈√n⌉
+/// - Giant-step: Evaluate polynomial in blocks using precomputed powers
 ///
 /// For degree-23 polynomial:
-/// - Depth: log₂(23) ≈ 5 levels
-/// - Multiplications: ~12 operations
+/// - Baby steps: 5 (√23 ≈ 5)
+/// - Giant steps: 5
+/// - Multiplicative depth: O(√23) ≈ 5 levels instead of 23 with Horner
 ///
 /// # Arguments
 ///
 /// * `ct` - Input ciphertext (x)
-/// * `sin_coeffs` - Polynomial coefficients [c₀, c₁, c₃, c₅, ...]
+/// * `sin_coeffs` - Polynomial coefficients [c₀, c₁, c₂, ...]
 /// * `evk` - Evaluation key (for relinearization)
 /// * `params` - FHE parameters
 /// * `key_ctx` - Key context (for NTT operations)
@@ -195,27 +197,124 @@ fn eval_sine_polynomial(
     params: &CliffordFHEParams,
     key_ctx: &KeyContext,
 ) -> Result<Ciphertext, String> {
-    // For simplicity, use Horner's method
-    // TODO: Implement Paterson-Stockmeyer for better depth
-
-    // Find the highest non-zero coefficient
-    let mut max_degree = sin_coeffs.len() - 1;
-    while max_degree > 0 && sin_coeffs[max_degree].abs() < 1e-10 {
-        max_degree -= 1;
+    // Find the highest non-zero coefficient to determine effective degree
+    let mut degree = sin_coeffs.len() - 1;
+    while degree > 0 && sin_coeffs[degree].abs() < 1e-10 {
+        degree -= 1;
     }
 
-    if max_degree == 0 {
-        // Constant polynomial
-        return multiply_by_constant(ct, sin_coeffs[0], params);
+    // Handle trivial cases
+    if degree == 0 {
+        return create_constant_ciphertext(sin_coeffs[0], ct.level, params);
     }
 
-    if max_degree == 1 && sin_coeffs[0].abs() < 1e-10 {
+    if degree == 1 && sin_coeffs[0].abs() < 1e-10 {
         // Pure linear term: c₁·x
         return multiply_by_constant(ct, sin_coeffs[1], params);
     }
 
+    // For small degree polynomials, Horner's method is simpler and sufficient
+    if degree <= 4 {
+        return eval_polynomial_horner(ct, sin_coeffs, evk, params, key_ctx);
+    }
+
+    // Baby-Step Giant-Step algorithm
+    let baby_steps = ((degree as f64).sqrt().ceil() as usize).max(2);
+    let giant_steps = (degree + baby_steps) / baby_steps;
+
+    println!("        Using BSGS: degree={}, baby_steps={}, giant_steps={}", degree, baby_steps, giant_steps);
+
+    // Step 1: Precompute powers x, x², x³, ..., x^baby_steps
+    let mut x_powers = vec![ct.clone()]; // x_powers[i] = x^(i+1)
+    for i in 1..baby_steps {
+        let x_next = multiply_ciphertexts(&x_powers[i - 1], ct, evk, params, key_ctx)?;
+        x_powers.push(x_next);
+    }
+
+    // x_giant = x^baby_steps (the last precomputed power)
+    let x_giant = x_powers[baby_steps - 1].clone();
+
+    // Step 2: Evaluate polynomial in blocks
+    // P(x) = Σ_{g=0}^{giant_steps-1} (x^baby_steps)^g * Σ_{b=0}^{baby_steps-1} c_{g*baby_steps+b} * x^b
+    let mut result: Option<Ciphertext> = None;
+    let mut x_giant_power: Option<Ciphertext> = None; // (x^baby_steps)^g
+
+    for g in 0..giant_steps {
+        // Evaluate baby polynomial for this giant step:
+        // baby_sum = c_{g*k} + c_{g*k+1}*x + c_{g*k+2}*x² + ... + c_{g*k+k-1}*x^{k-1}
+        let mut baby_sum: Option<Ciphertext> = None;
+
+        for b in 0..baby_steps {
+            let idx = g * baby_steps + b;
+            if idx > degree {
+                break;
+            }
+
+            let coeff = sin_coeffs[idx];
+            if coeff.abs() > 1e-10 {
+                let term = if b == 0 {
+                    // Constant term: just the coefficient
+                    create_constant_ciphertext(coeff, ct.level, params)?
+                } else {
+                    // x^b * coeff
+                    multiply_by_constant(&x_powers[b - 1], coeff, params)?
+                };
+
+                baby_sum = match baby_sum {
+                    None => Some(term),
+                    Some(sum) => Some(add_ciphertexts(&sum, &term, params)?),
+                };
+            }
+        }
+
+        // Skip if all coefficients in this block were zero
+        let baby_sum = match baby_sum {
+            Some(sum) => sum,
+            None => continue,
+        };
+
+        // Multiply baby_sum by (x^baby_steps)^g
+        let term = match &x_giant_power {
+            None => baby_sum, // g=0, so (x^k)^0 = 1
+            Some(xgp) => multiply_ciphertexts(&baby_sum, xgp, evk, params, key_ctx)?,
+        };
+
+        // Add to result
+        result = match result {
+            None => Some(term),
+            Some(r) => Some(add_ciphertexts(&r, &term, params)?),
+        };
+
+        // Update x_giant_power for next iteration: (x^k)^{g+1} = (x^k)^g * x^k
+        if g < giant_steps - 1 {
+            x_giant_power = match x_giant_power {
+                None => Some(x_giant.clone()),
+                Some(xgp) => Some(multiply_ciphertexts(&xgp, &x_giant, evk, params, key_ctx)?),
+            };
+        }
+    }
+
+    result.ok_or_else(|| "Polynomial evaluation produced no result".to_string())
+}
+
+/// Evaluate polynomial using Horner's method (for small degree polynomials)
+///
+/// For degree n polynomial, uses O(n) multiplicative depth.
+/// Simple and numerically stable, but depth-inefficient for large n.
+fn eval_polynomial_horner(
+    ct: &Ciphertext,
+    coeffs: &[f64],
+    evk: &EvaluationKey,
+    params: &CliffordFHEParams,
+    key_ctx: &KeyContext,
+) -> Result<Ciphertext, String> {
+    let mut max_degree = coeffs.len() - 1;
+    while max_degree > 0 && coeffs[max_degree].abs() < 1e-10 {
+        max_degree -= 1;
+    }
+
     // Start with highest coefficient
-    let mut result = multiply_by_constant(ct, sin_coeffs[max_degree], params)?;
+    let mut result = multiply_by_constant(ct, coeffs[max_degree], params)?;
 
     // Horner's method: result = (...((c_n·x + c_{n-1})·x + c_{n-2})·x + ...)
     for i in (0..max_degree).rev() {
@@ -223,9 +322,8 @@ fn eval_sine_polynomial(
         result = multiply_ciphertexts(&result, ct, evk, params, key_ctx)?;
 
         // result = result + c_i
-        if sin_coeffs[i].abs() > 1e-10 {
-            // Create constant at the same level as current result
-            let ct_coeff = create_constant_ciphertext(sin_coeffs[i], result.level, params)?;
+        if coeffs[i].abs() > 1e-10 {
+            let ct_coeff = create_constant_ciphertext(coeffs[i], result.level, params)?;
             result = add_ciphertexts(&result, &ct_coeff, params)?;
         }
     }

@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite both the software and the accompanying paper."
+title: "ga_engine: Clifford FHE and Geometric Neural Networks"
+abstract: >-
+  A Rust geometric algebra engine featuring Clifford FHE — an RLWE/CKKS-based
+  fully homomorphic encryption scheme with native support for Clifford algebra
+  operations — and geometric neural networks that operate directly on encrypted
+  multivectors for privacy-preserving geometric deep learning.
+type: software
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/DataHubz/ga_engine"
+authors:
+  - family-names: Silva
+    given-names: David William
+    email: dsilva@datahubz.com
+    affiliation: "DataHubz LLC"
+keywords:
+  - geometric algebra
+  - Clifford algebra
+  - fully homomorphic encryption
+  - CKKS
+  - privacy-preserving machine learning
+  - geometric deep learning
+  - 3D point cloud classification
+preferred-citation:
+  type: article
+  title: "Merits of Geometric Algebra Applied to Cryptography and Machine Learning"
+  authors:
+    - family-names: Silva
+      given-names: David William
+      email: dsilva@datahubz.com
+      affiliation: "DataHubz LLC"
+  journal: "Philosophical Transactions of the Royal Society A"
+  year: 2026

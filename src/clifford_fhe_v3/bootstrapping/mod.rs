@@ -54,7 +54,7 @@ pub mod cuda_slot_to_coeff;
 pub mod cuda_eval_mod;
 
 pub use bootstrap_context::{BootstrapContext, BootstrapParams};
-pub use mod_raise::mod_raise;
+pub use mod_raise::{mod_raise, mod_down};
 pub use sin_approx::{chebyshev_sin_coeffs, eval_polynomial, taylor_sin_coeffs};
 pub use keys::{RotationKeys, RotationKey, galois_element_for_rotation, generate_rotation_keys, required_rotations_for_bootstrap};
 pub use rotation::rotate;

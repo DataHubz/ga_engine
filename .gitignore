@@ -33,3 +33,10 @@ transient-docs/
 other-projects/
 internal-guide/
 patents/
+parallel_lift/
+
+# Datasets (download from source, too large for git)
+data/
+*.zip
+ModelNet40.zip
+ModelNet40/

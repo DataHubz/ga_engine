@@ -396,11 +396,40 @@ mod tests {
 
     #[test]
     fn test_bootstrap_context_accessors() {
-        // Use parameters that will work (need many primes for bootstrap)
-        // For testing, we'll need to create custom params or skip this test
-        // until we have proper parameter sets for V3
+        // Use V3 minimal params which has 20 primes (sufficient for bootstrap)
+        let params = CliffordFHEParams::new_v3_bootstrap_minimal();
+        let key_ctx = KeyContext::new(params.clone());
+        let (_, secret_key, _) = key_ctx.keygen();
 
-        // TODO: Create V3 parameter sets with 20+ primes for bootstrap
+        // Use custom bootstrap params that fit within 20 primes
+        // With 20 primes: bootstrap_levels=12 means 20-12-1=7 computation levels (>= 3 required)
+        let bootstrap_params = BootstrapParams {
+            sin_degree: 15,
+            bootstrap_levels: 12,
+            target_precision: 1e-3,
+        };
+
+        // Create bootstrap context
+        let ctx = BootstrapContext::new(params.clone(), bootstrap_params.clone(), &secret_key)
+            .expect("Should create bootstrap context with V3 minimal params");
+
+        // Test accessor methods
+        assert_eq!(ctx.sin_coeffs().len(), 16); // degree 15 + 1 = 16 coefficients
+        assert_eq!(ctx.bootstrap_params().sin_degree, 15);
+        assert_eq!(ctx.bootstrap_params().bootstrap_levels, 12);
+        assert_eq!(ctx.params().n, 8192);
+        assert_eq!(ctx.params().moduli.len(), 20);
+
+        // Verify sine coefficients are valid (odd function: even indices should be ~0)
+        let coeffs = ctx.sin_coeffs();
+        for i in (0..coeffs.len()).filter(|&i| i % 2 == 0) {
+            assert!(coeffs[i].abs() < 1e-10,
+                    "Coefficient {} should be ~0 for odd function, got {}", i, coeffs[i]);
+        }
+
+        // Verify first non-zero coefficient (x term) is near 1
+        assert!((coeffs[1] - 1.0).abs() < 0.1,
+                "x coefficient should be near 1.0, got {}", coeffs[1]);
     }
 
     #[test]

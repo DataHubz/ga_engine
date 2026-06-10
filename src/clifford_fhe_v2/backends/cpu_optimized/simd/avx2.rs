@@ -661,9 +661,9 @@ mod tests {
         let q = 1099511678977u64;
 
         // Test with realistic NTT size (1024 elements)
-        let n = 1024;
-        let a: Vec<u64> = (0..n).map(|i| (i * 123) % q).collect();
-        let b: Vec<u64> = (0..n).map(|i| (i * 456) % q).collect();
+        let n: usize = 1024;
+        let a: Vec<u64> = (0..n).map(|i| ((i as u64) * 123) % q).collect();
+        let b: Vec<u64> = (0..n).map(|i| ((i as u64) * 456) % q).collect();
 
         let mut result_avx2 = vec![0u64; n];
         let mut result_scalar = vec![0u64; n];

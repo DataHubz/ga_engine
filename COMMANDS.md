@@ -42,6 +42,7 @@ cargo build --release --features v2,v2-gpu-cuda,v3
 - [V3: Bootstrapping](#v3-bootstrapping)
 - [V4: Packed Multivector Layout](#v4-packed-multivector-layout)
 - [V5: Privacy Analysis](#v5-privacy-analysis)
+- [V6: parallel_lift GPU Acceleration](#v6-parallel_lift-gpu-acceleration)
 - [Lattice Reduction](#lattice-reduction)
 - [All Versions Combined](#all-versions-combined)
 - [Quick Reference Tables](#quick-reference-tables)
@@ -445,6 +446,75 @@ examples/v5_dimension_attack.rs  # Dimension inference attack
 examples/v5_trace_collector.rs   # Trace collection utility
 ```
 
+## V6: parallel_lift GPU Acceleration
+
+V6 provides **external GPU acceleration** via the parallel_lift library for 25-552× speedup on CRT operations.
+
+**Default Behavior**: Uses **stub crates** that compile without the external repository but return errors at runtime. This allows the project to build without additional setup.
+
+### Setup V6 (Optional)
+
+```bash
+# Step 1: Clone the parallel_lift repository
+cd ..  # Go to parent directory of ga_engine
+git clone <parallel_lift_url> parallel_lift
+cd ga_engine
+
+# Step 2: Enable real parallel_lift
+./scripts/enable_parallel_lift.sh
+
+# Step 3: Build with V6 CUDA support
+cargo build --release --features v6-cuda
+```
+
+### Revert to Stubs
+
+```bash
+# Revert to stub crates (no external dependency)
+./scripts/disable_parallel_lift.sh
+```
+
+### Build V6
+
+```bash
+# Build with V6 CUDA (uses stubs by default)
+cargo build --release --features v6-cuda
+
+# Build with V6 full (V6 + V3 bootstrapping)
+cargo build --release --features v6-full
+```
+
+### Test V6 (with stubs)
+
+```bash
+# Build succeeds with stubs, but FheGpuContext::new() returns error at runtime
+cargo build --release --features v6-cuda
+```
+
+### Test V6 (with real parallel_lift)
+
+```bash
+# After running ./scripts/enable_parallel_lift.sh
+cargo test --release --features v6-cuda
+
+# Run V6 speedup benchmark
+cargo bench --bench v6_speedup_benchmark --features v6-cuda
+```
+
+### V6 File Locations
+```bash
+# Stub crates (default, no external dependency)
+crates/parallel_lift_stubs/parallel_lift_core/
+crates/parallel_lift_stubs/parallel_lift_cuda/
+
+# Setup scripts
+scripts/enable_parallel_lift.sh   # Enable real parallel_lift
+scripts/disable_parallel_lift.sh  # Revert to stubs
+
+# Configuration example
+.cargo/config.toml.example        # Setup instructions
+```
+
 ## Lattice Reduction
 
 Lattice reduction is used for **security analysis** (cryptanalysis) of the FHE scheme. It is **not required** for FHE operations.
@@ -531,9 +601,12 @@ cargo doc --open --features v2,v3
 | `v3` | V3 bootstrapping (requires `v2`) | V3 bootstrap examples and tests |
 | `v4` | V4 packed multivector layout (requires `v2`) | V4 packing and geometric product |
 | `v5` | V5 privacy analysis (standalone) | V5 attack suite and trace collection |
+| `v6` | V6 parallel_lift base (requires `v2`) | V6 GPU acceleration |
+| `v6-cuda` | V6 with CUDA (uses stubs by default) | V6 CUDA operations |
+| `v6-full` | V6 + V3 bootstrapping | V6 with bootstrap support |
 | `lattice-reduction` | Lattice reduction for security analysis | Lattice reduction tests |
 
-**Important**: `v3` and `v4` automatically include `v2` as a dependency. `v5` is standalone (does not require `v2`). GPU backends (`v2-gpu-metal`, `v2-gpu-cuda`) work with V2, V3, V4, and V5.
+**Important**: `v3`, `v4`, and `v6` automatically include `v2` as a dependency. `v5` is standalone (does not require `v2`). GPU backends (`v2-gpu-metal`, `v2-gpu-cuda`) work with V2, V3, V4, and V5. **V6 uses stub crates by default**—run `./scripts/enable_parallel_lift.sh` to enable real parallel_lift.
 
 ### Test Counts
 
@@ -656,6 +729,38 @@ export LD_LIBRARY_PATH=$CUDA_PATH/lib64:$LD_LIBRARY_PATH
 nvidia-smi -l 1  # Monitor GPU utilization in real-time
 ```
 
+### V6 parallel_lift Issues
+
+**Problem**: "parallel_lift is not available" error at runtime
+```bash
+# This is expected with stub crates. To enable real parallel_lift:
+
+# Step 1: Clone parallel_lift repository
+cd ..
+git clone <parallel_lift_url> parallel_lift
+cd ga_engine
+
+# Step 2: Enable real parallel_lift
+./scripts/enable_parallel_lift.sh
+
+# Step 3: Rebuild
+cargo build --release --features v6-cuda
+```
+
+**Problem**: Cannot find parallel_lift repository
+```bash
+# The enable script checks for ../parallel_lift/rust/crates/parallel_lift_core
+# Make sure parallel_lift is cloned to the correct location:
+ls ../parallel_lift/rust/crates/parallel_lift_core  # Should exist
+```
+
+**Problem**: Want to revert to stubs
+```bash
+# Revert Cargo.toml to use stub crates
+./scripts/disable_parallel_lift.sh
+cargo build --release --features v6-cuda  # Now uses stubs
+```
+
 ## Additional Resources
 
 ### Essential Documentation
@@ -668,6 +773,5 @@ nvidia-smi -l 1  # Monitor GPU utilization in real-time
 
 ## Support
 
-For issues or questions:
-- **GitHub Issues**: https://github.com/DataHubz/ga_engine/issues
-- **Email**: dsilva@datahubz.com
+David William Silva — DataHubz LLC — <dsilva@datahubz.com>
+For bug reports, use the [issue tracker](https://github.com/DataHubz/ga_engine/issues).

@@ -490,6 +490,5 @@ If performance is significantly slower, check:
 
 ## Support
 
-For issues or questions:
-- **GitHub Issues**: https://github.com/DataHubz/ga_engine/issues
-- **Email**: dsilva@datahubz.com
+David William Silva — DataHubz LLC — <dsilva@datahubz.com>
+For bug reports, use the [issue tracker](https://github.com/DataHubz/ga_engine/issues).
